@@ -22,11 +22,12 @@ class _RoadNetworkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final linePaint = Paint()
-      ..color = Colors.blueGrey[300]!.withOpacity(0.9)
+      ..color = Colors.blueGrey[300]!.withValues(alpha: 0.9)
       ..strokeWidth = 5
       ..strokeCap = StrokeCap.round;
 
-    final nodePaint = Paint()..color = Colors.blueGrey[300]!.withOpacity(0.9);
+    final nodePaint = Paint()
+      ..color = Colors.blueGrey[300]!.withValues(alpha: 0.9);
 
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 4; j++) {
@@ -285,7 +286,9 @@ class BoardWidget extends StatelessWidget {
                                       child: Container(
                                         padding: const EdgeInsets.all(2),
                                         decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.55),
+                                          color: Colors.black.withValues(
+                                            alpha: 0.55,
+                                          ),
                                           shape: BoxShape.circle,
                                         ),
                                         child: const Icon(
@@ -381,7 +384,7 @@ class BoardWidget extends StatelessWidget {
                               ? (isCurrentHeli
                                     ? Colors.orangeAccent
                                     : Colors.white)
-                              : Colors.white.withOpacity(0.7),
+                              : Colors.white.withValues(alpha: 0.7),
                           width: isCurrentHeli ? 3.5 : 1.5,
                         ),
                         boxShadow: heliIndex != -1

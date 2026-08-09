@@ -290,8 +290,9 @@ class _GamePageState extends State<GamePage> {
   }
 
   void _moveHelicopter(int targetRow, int targetCol) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) {
       return;
+    }
 
     final currentHeli = helicopters[currentHeliIndex];
 
@@ -320,8 +321,9 @@ class _GamePageState extends State<GamePage> {
   }
 
   Future<void> _searchBuilding(int r, int c) async {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) {
       return;
+    }
     if (searchingRow != -1) return; // 演出中は多重実行を防止
 
     final currentHeli = helicopters[currentHeliIndex];
@@ -379,8 +381,10 @@ class _GamePageState extends State<GamePage> {
   // ============ 犯人役=人間 の操作 & 警察AI ============
 
   void _moveCarHuman(int r, int c) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.criminal)
+    if (currentPhase != GamePhase.playing ||
+        playerRole != PlayerRole.criminal) {
       return;
+    }
     if (isPoliceTurnRunning) return;
 
     int dr = (carRow - r).abs();
