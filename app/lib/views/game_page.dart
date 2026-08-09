@@ -41,8 +41,15 @@ class _GamePageState extends State<GamePage> {
   late List<List<int>> traceGrid;
   // 発見された痕跡の記録（trueなら画面表示）
   late List<List<bool>> revealedTraces;
-  // 一度でも捜索されたことがあるか（AI警察が同じ場所を無駄に捜索しないための記録）
+  // 一度でも捜索されたことがあるか（AI警察が同じ場所を無駄に捜索しないための記録・永続）
   late List<List<bool>> searchedGrid;
+  // 何ラウンド目に捜索したか（表示用。0=未捜索）。
+  // 「捜索したラウンド＋次の1ラウンドのみ表示」の判定に使う。AIの記憶(searchedGrid)には影響しない。
+  late List<List<int>> searchedRoundGrid;
+
+  // 現在アニメーション中（捜索演出中）のビル座標。捜索していない時は-1。
+  int searchingRow = -1;
+  int searchingCol = -1;
 
   // ラウンド
   int currentRound = 1;
@@ -76,25 +83,71 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
+  // 盤面状態を初期化する（役割 playerRole はここでは変更しない）
+  void _resetBoardState() {
+    currentRound = 1;
+    carRow = -1;
+    carCol = -1;
+    currentHeliIndex = 0;
+    isSearchMode = false;
+    isPoliceTurnRunning = false;
+    searchingRow = -1;
+    searchingCol = -1;
+    gameResultMessage = '';
+    logHistory = [];
+
+    traceGrid = List.generate(boardSize, (_) => List.filled(boardSize, 0));
+    revealedTraces = List.generate(
+      boardSize,
+      (_) => List.filled(boardSize, false),
+    );
+    searchedGrid = List.generate(
+      boardSize,
+      (_) => List.filled(boardSize, false),
+    );
+    searchedRoundGrid = List.generate(
+      boardSize,
+      (_) => List.filled(boardSize, 0),
+    );
+    helicopters = [];
+  }
+
   // リセット（役割選択画面に戻る）
   void _startNewGame() {
     setState(() {
       currentPhase = GamePhase.roleSelect;
       playerRole = null;
-      currentRound = 1;
-      carRow = -1;
-      carCol = -1;
-      currentHeliIndex = 0;
-      isSearchMode = false;
-      isPoliceTurnRunning = false;
-      gameResultMessage = '';
-      logHistory = [];
-
-      traceGrid = List.generate(boardSize, (_) => List.filled(boardSize, 0));
-      revealedTraces = List.generate(boardSize, (_) => List.filled(boardSize, false));
-      searchedGrid = List.generate(boardSize, (_) => List.filled(boardSize, false));
-      helicopters = [];
+      _resetBoardState();
     });
+  }
+
+  // 「連続して遊ぶ」：現在の playerRole を維持したまま盤面だけ初期化し、
+  // 役割選択画面を経由せずに次のゲームのセットアップから再開する。
+  // ※ ai/criminal_ai.dart・ai/police_ai.dart は状態を持たない純粋関数のみで
+  //   構成されているため、AI側で別途リセットすべき内部状態は存在しない。
+  void _restartSameRole() {
+    if (playerRole == null) {
+      _startNewGame();
+      return;
+    }
+    final role = playerRole!;
+
+    setState(() {
+      _resetBoardState();
+    });
+
+    if (role == PlayerRole.police) {
+      setState(() {
+        currentPhase = GamePhase.setupHelicopters;
+        _pushLog('【セットアップ】警察ヘリコプター(3機)の初期配置場所（交差点）を3箇所選んでください。');
+      });
+    } else {
+      _placeHelicoptersRandomly();
+      setState(() {
+        currentPhase = GamePhase.setupCarHuman;
+        _pushLog('警察が展開しました。あなたの車の隠れ場所（ビル）を1つタップして選んでください。');
+      });
+    }
   }
 
   // 役割選択
@@ -124,7 +177,9 @@ class _GamePageState extends State<GamePage> {
       helicopters.add(Helicopter(helicopters.length + 1, r, c));
 
       if (helicopters.length < 3) {
-        _pushLog('ヘリ${helicopters.length}を配置しました。残りのヘリを配置してください（あと${3 - helicopters.length}機）。');
+        _pushLog(
+          'ヘリ${helicopters.length}を配置しました。残りのヘリを配置してください（あと${3 - helicopters.length}機）。',
+        );
       } else {
         _placeCarRandomly();
         currentPhase = GamePhase.playing;
@@ -203,7 +258,12 @@ class _GamePageState extends State<GamePage> {
       return;
     }
 
-    final nextMove = CriminalAi.decideMove(traceGrid, boardSize, carRow, carCol);
+    final nextMove = CriminalAi.decideMove(
+      traceGrid,
+      boardSize,
+      carRow,
+      carCol,
+    );
 
     if (nextMove == null) {
       setState(() {
@@ -230,7 +290,8 @@ class _GamePageState extends State<GamePage> {
   }
 
   void _moveHelicopter(int targetRow, int targetCol) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) return;
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+      return;
 
     final currentHeli = helicopters[currentHeliIndex];
 
@@ -238,7 +299,10 @@ class _GamePageState extends State<GamePage> {
     int dc = (currentHeli.col - targetCol).abs();
 
     if ((dr == 1 && dc == 0) || (dr == 0 && dc == 1)) {
-      if (helicopters.any((h) => h.id != currentHeli.id && h.row == targetRow && h.col == targetCol)) {
+      if (helicopters.any(
+        (h) =>
+            h.id != currentHeli.id && h.row == targetRow && h.col == targetCol,
+      )) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('他のヘリコプターがいる交差点には移動できません。')),
         );
@@ -255,37 +319,57 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
-  void _searchBuilding(int r, int c) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) return;
+  Future<void> _searchBuilding(int r, int c) async {
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+      return;
+    if (searchingRow != -1) return; // 演出中は多重実行を防止
 
     final currentHeli = helicopters[currentHeliIndex];
 
-    bool isAdjacent = (r == currentHeli.row || r == currentHeli.row + 1) &&
-                      (c == currentHeli.col || c == currentHeli.col + 1);
+    bool isAdjacent =
+        (r == currentHeli.row || r == currentHeli.row + 1) &&
+        (c == currentHeli.col || c == currentHeli.col + 1);
 
     if (!isAdjacent) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('このビルは選択中のヘリの捜索範囲外です。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('このビルは選択中のヘリの捜索範囲外です。')));
       return;
     }
 
+    setState(() {
+      searchingRow = r;
+      searchingCol = c;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+
     searchedGrid[r][c] = true;
+    searchedRoundGrid[r][c] = currentRound;
 
     if (r == carRow && c == carCol) {
       setState(() {
+        searchingRow = -1;
+        searchingCol = -1;
         currentPhase = GamePhase.gameOver;
         gameResultMessage = '🎉 逮捕！ビル($r, $c)で犯人の車を発見しました！警察の勝利！';
         _pushLog('🎉 ビル($r, $c)で車を発見！逮捕成功！');
       });
     } else if (traceGrid[r][c] > 0) {
       setState(() {
+        searchingRow = -1;
+        searchingCol = -1;
         revealedTraces[r][c] = true;
-        _pushLog('🔍 ヘリ${currentHeli.id}：ビル($r, $c)で【痕跡コマ】を発見！(第${traceGrid[r][c]}ターン通過)');
+        _pushLog(
+          '🔍 ヘリ${currentHeli.id}：ビル($r, $c)で【痕跡コマ】を発見！(第${traceGrid[r][c]}ターン通過)',
+        );
       });
       _onHelicopterActed();
     } else {
       setState(() {
+        searchingRow = -1;
+        searchingCol = -1;
         _pushLog('🔍 ヘリ${currentHeli.id}：ビル($r, $c)には何もいませんでした。');
       });
       _onHelicopterActed();
@@ -295,7 +379,8 @@ class _GamePageState extends State<GamePage> {
   // ============ 犯人役=人間 の操作 & 警察AI ============
 
   void _moveCarHuman(int r, int c) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.criminal) return;
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.criminal)
+      return;
     if (isPoliceTurnRunning) return;
 
     int dr = (carRow - r).abs();
@@ -303,15 +388,15 @@ class _GamePageState extends State<GamePage> {
     bool isAdjacentOrtho = (dr == 1 && dc == 0) || (dr == 0 && dc == 1);
 
     if (!isAdjacentOrtho) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('タテヨコに隣接するビルへのみ移動できます。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('タテヨコに隣接するビルへのみ移動できます。')));
       return;
     }
     if (traceGrid[r][c] != 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('すでに痕跡のあるビルには戻れません。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('すでに痕跡のあるビルには戻れません。')));
       return;
     }
 
@@ -343,7 +428,7 @@ class _GamePageState extends State<GamePage> {
         currentHeliIndex = idx;
       });
 
-      _aiDecideAndActHelicopter(helicopters[idx]);
+      await _aiDecideAndActHelicopter(helicopters[idx]);
 
       if (currentPhase == GamePhase.gameOver) return;
     }
@@ -357,7 +442,12 @@ class _GamePageState extends State<GamePage> {
       return;
     }
 
-    List<List<int>> validMoves = CriminalAi.getValidMoves(traceGrid, boardSize, carRow, carCol);
+    List<List<int>> validMoves = CriminalAi.getValidMoves(
+      traceGrid,
+      boardSize,
+      carRow,
+      carCol,
+    );
     if (validMoves.isEmpty) {
       setState(() {
         currentPhase = GamePhase.gameOver;
@@ -376,18 +466,20 @@ class _GamePageState extends State<GamePage> {
   // 1機のヘリのAI行動決定：
   // 「どこを捜索・移動するか」の判断自体は ai/police_ai.dart に委譲し、
   // ここでは判断結果（PoliceAiAction）に応じた状態更新（setState・ログ追加）のみを行う。
-  void _aiDecideAndActHelicopter(Helicopter heli) {
+  Future<void> _aiDecideAndActHelicopter(Helicopter heli) async {
     final action = PoliceAi.decideAction(heli, helicopters, searchedGrid);
 
     switch (action.type) {
       case PoliceActionType.search:
-        _aiSearchBuilding(heli, action.targetRow, action.targetCol);
+        await _aiSearchBuilding(heli, action.targetRow, action.targetCol);
         break;
       case PoliceActionType.move:
         setState(() {
           heli.row = action.targetRow;
           heli.col = action.targetCol;
-          _pushLog('ヘリ${heli.id}：交差点(${action.targetRow}, ${action.targetCol})へ移動しました。');
+          _pushLog(
+            'ヘリ${heli.id}：交差点(${action.targetRow}, ${action.targetCol})へ移動しました。',
+          );
         });
         break;
       case PoliceActionType.wait:
@@ -398,11 +490,22 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
-  void _aiSearchBuilding(Helicopter heli, int r, int c) {
+  Future<void> _aiSearchBuilding(Helicopter heli, int r, int c) async {
+    setState(() {
+      searchingRow = r;
+      searchingCol = c;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+
     searchedGrid[r][c] = true;
+    searchedRoundGrid[r][c] = currentRound;
 
     if (r == carRow && c == carCol) {
       setState(() {
+        searchingRow = -1;
+        searchingCol = -1;
         currentPhase = GamePhase.gameOver;
         isPoliceTurnRunning = false;
         gameResultMessage = '🚨 逮捕！警察がビル($r, $c)であなたの車を発見しました。警察の勝利です。';
@@ -410,11 +513,15 @@ class _GamePageState extends State<GamePage> {
       });
     } else if (traceGrid[r][c] > 0) {
       setState(() {
+        searchingRow = -1;
+        searchingCol = -1;
         revealedTraces[r][c] = true;
         _pushLog('🔍 ヘリ${heli.id}：ビル($r, $c)で痕跡を発見（第${traceGrid[r][c]}ターン通過）。');
       });
     } else {
       setState(() {
+        searchingRow = -1;
+        searchingCol = -1;
         _pushLog('🔍 ヘリ${heli.id}：ビル($r, $c)は空振りでした。');
       });
     }
@@ -454,9 +561,12 @@ class _GamePageState extends State<GamePage> {
   }
 
   void _onIntersectionTap(int i, int j) {
-    if (currentPhase == GamePhase.setupHelicopters && playerRole == PlayerRole.police) {
+    if (currentPhase == GamePhase.setupHelicopters &&
+        playerRole == PlayerRole.police) {
       _selectHelicopterInitialPosition(i, j);
-    } else if (currentPhase == GamePhase.playing && playerRole == PlayerRole.police && !isSearchMode) {
+    } else if (currentPhase == GamePhase.playing &&
+        playerRole == PlayerRole.police &&
+        !isSearchMode) {
       _moveHelicopter(i, j);
     }
   }
@@ -469,11 +579,13 @@ class _GamePageState extends State<GamePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(playerRole == PlayerRole.police
-            ? 'シティチェイス（警察役）'
-            : playerRole == PlayerRole.criminal
-                ? 'シティチェイス（犯人役）'
-                : 'シティチェイス'),
+        title: Text(
+          playerRole == PlayerRole.police
+              ? 'City Chase（警察役）'
+              : playerRole == PlayerRole.criminal
+              ? 'City Chase（犯人役）'
+              : 'City Chase',
+        ),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         actions: [
@@ -481,7 +593,7 @@ class _GamePageState extends State<GamePage> {
             icon: const Icon(Icons.refresh),
             onPressed: _startNewGame,
             tooltip: 'リセット（役割選択に戻る）',
-          )
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -494,14 +606,22 @@ class _GamePageState extends State<GamePage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('ターン: $currentRound / $maxRounds',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(
+                    'ターン: $currentRound / $maxRounds',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   Text(
                     _statusLabel(),
                     style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: currentPhase == GamePhase.gameOver ? Colors.red : Colors.green[800]),
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: currentPhase == GamePhase.gameOver
+                          ? Colors.red
+                          : Colors.green[800],
+                    ),
                   ),
                 ],
               ),
@@ -513,10 +633,36 @@ class _GamePageState extends State<GamePage> {
                 width: double.infinity,
                 color: Colors.amber[100],
                 padding: const EdgeInsets.all(12),
-                child: Text(
-                  gameResultMessage,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                child: Column(
+                  children: [
+                    Text(
+                      gameResultMessage,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _restartSameRole,
+                          icon: const Icon(Icons.replay),
+                          label: const Text('連続して遊ぶ（同じ役職で再戦）'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _startNewGame,
+                          icon: const Icon(Icons.swap_horiz),
+                          label: const Text('役割選択に戻る'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
 
@@ -524,22 +670,36 @@ class _GamePageState extends State<GamePage> {
             LogPanel(logHistory: logHistory),
 
             // プレイ中の操作コントロール（警察役=人間のみ）
-            if (currentPhase == GamePhase.playing && playerRole == PlayerRole.police) ...[
+            if (currentPhase == GamePhase.playing &&
+                playerRole == PlayerRole.police) ...[
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('現在操作中: ヘリ${helicopters[currentHeliIndex].id}  ',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text(
+                      '現在操作中: ヘリ${helicopters[currentHeliIndex].id}  ',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
                   ],
                 ),
               ),
               const SizedBox(height: 8),
               SegmentedButton<bool>(
                 segments: const [
-                  ButtonSegment(value: false, label: Text('移動モード'), icon: Icon(Icons.open_with)),
-                  ButtonSegment(value: true, label: Text('捜索モード'), icon: Icon(Icons.search)),
+                  ButtonSegment(
+                    value: false,
+                    label: Text('移動モード'),
+                    icon: Icon(Icons.open_with),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text('捜索モード'),
+                    icon: Icon(Icons.search),
+                  ),
                 ],
                 selected: {isSearchMode},
                 onSelectionChanged: (Set<bool> newSelection) {
@@ -585,6 +745,10 @@ class _GamePageState extends State<GamePage> {
               carCol: carCol,
               traceGrid: traceGrid,
               revealedTraces: revealedTraces,
+              searchedRoundGrid: searchedRoundGrid,
+              currentRound: currentRound,
+              searchingRow: searchingRow,
+              searchingCol: searchingCol,
               helicopters: helicopters,
               currentHeliIndex: currentHeliIndex,
               isSearchMode: isSearchMode,
