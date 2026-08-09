@@ -27,12 +27,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "PROJECT.md",
+                "file": "prompts/CREATE_AI_HANDOVER.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "PROJECT"
+              "title": "CREATE_AI_HANDOVER"
             }
           }
         ],
@@ -202,6 +202,9 @@
   },
   "active": "1fa3546ea289134b",
   "lastOpenFiles": [
+    "PROJECT.md",
+    "prompts/CREATE_AI_HANDOVER.md",
+    "prompts",
     "CHANGELOG.md",
     "DECISIONS.md",
     "AI_PROJECT_MANAGER.md",
@@ -214,7 +217,6 @@
     "SPECIFICATION.md",
     "ROADMAP.md",
     "README.md",
-    "PROJECT.md",
     "Open_Problems.md",
     "KNOWN_ISSUES.md",
     "IDEAS.md",
@@ -227,7 +229,6 @@
     "DEVLOG.md.md",
     "CURRENT_STATUS.md.md",
     "AI_PROJECT_MANAGER.md.md",
-    "KNOWN_ISSUES.md.md",
-    "CHANGELOG.md.md"
+    "KNOWN_ISSUES.md.md"
   ]
 }
