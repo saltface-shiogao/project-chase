@@ -29,6 +29,23 @@ class _GamePageState extends State<GamePage> {
   // ログとして画面に残す最大件数
   static const int maxLogEntries = 6;
 
+  // ==== PCブラウザ版デスクトップレイアウト用の定数 ====
+  // このセクションの値は「今回の画面配置（PC向け）」専用の見た目調整値であり、
+  // ゲームロジックには一切影響しない。将来スマホ向けレイアウトを追加する際は、
+  // ここを別レイアウト定義に差し替える想定（ゲームロジック側は変更不要）。
+  //
+  // 画面上部の「ステータスヘッダー／結果バナー」切り替え領域の高さ。
+  // 通常時（ターン数・フェーズ表示）とゲーム終了時（結果メッセージ＋再戦ボタン）の
+  // どちらの内容が入っても、この高さは変えない＝盤面の位置がズレない。
+  static const double headerAreaHeight = 148;
+  // 盤面の左上に置く「操作コントロール／ヒント」領域の高さ
+  // （警察役の移動/捜索モード切替、犯人役へのヒント文言などが入る）。
+  // フェーズによって表示内容が有る/無いが変わっても、高さは固定する。
+  static const double controlAreaHeight = 84;
+  // 左側ログパネルの幅（折り返し表示でも読みやすいよう少し広めに設定。
+  // この値はゲーム中・ゲーム終了時を通じて変わらない固定値）
+  static const double logPanelWidth = 260;
+
   // 役割・フェーズ
   PlayerRole? playerRole;
   GamePhase currentPhase = GamePhase.roleSelect;
@@ -290,9 +307,8 @@ class _GamePageState extends State<GamePage> {
   }
 
   void _moveHelicopter(int targetRow, int targetCol) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) {
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
       return;
-    }
 
     final currentHeli = helicopters[currentHeliIndex];
 
@@ -321,9 +337,8 @@ class _GamePageState extends State<GamePage> {
   }
 
   Future<void> _searchBuilding(int r, int c) async {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) {
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
       return;
-    }
     if (searchingRow != -1) return; // 演出中は多重実行を防止
 
     final currentHeli = helicopters[currentHeliIndex];
@@ -381,10 +396,8 @@ class _GamePageState extends State<GamePage> {
   // ============ 犯人役=人間 の操作 & 警察AI ============
 
   void _moveCarHuman(int r, int c) {
-    if (currentPhase != GamePhase.playing ||
-        playerRole != PlayerRole.criminal) {
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.criminal)
       return;
-    }
     if (isPoliceTurnRunning) return;
 
     int dr = (carRow - r).abs();
@@ -575,11 +588,148 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
+  // ============ 画面上部：ステータスヘッダー／結果バナー（表示専用・ロジックなし） ============
+  //
+  // 通常時は「ターン数・フェーズ」を表示するステータスヘッダー、
+  // ゲーム終了時は「勝敗メッセージ＋再戦ボタン」の結果バナーを、
+  // 同じ固定高さ領域（headerAreaHeight）の中で切り替えて表示する。
+  // これにより、この下にあるログパネル・盤面の位置は状態によらず常に同じになる。
+  // ここで呼んでいる _restartSameRole() / _startNewGame() は既存の機能をそのまま呼ぶだけで、
+  // ロジック自体の変更は行っていない。
+
+  Widget _buildStatusHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          'ターン: $currentRound / $maxRounds',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        Text(
+          _statusLabel(),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.green[800],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResultBanner() {
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            gameResultMessage,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              ElevatedButton.icon(
+                onPressed: _restartSameRole,
+                icon: const Icon(Icons.replay),
+                label: const Text('連続して遊ぶ（同じ役職で再戦）'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _startNewGame,
+                icon: const Icon(Icons.swap_horiz),
+                label: const Text('役割選択に戻る'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============ 盤面左上：操作コントロール／ヒント領域（表示専用・ロジックなし） ============
+  //
+  // 警察役=人間の移動/捜索モード切替、犯人役=人間へのヒント文言、
+  // 犯人役セットアップ時のヒント文言などを、固定高さ（controlAreaHeight）の中に表示する。
+  // 表示する/しないの判定条件は、変更前の build() に元々あった条件分岐をそのまま踏襲している。
+
+  Widget _buildControlArea() {
+    if (currentPhase == GamePhase.playing && playerRole == PlayerRole.police) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '現在操作中: ヘリ${helicopters[currentHeliIndex].id}',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(
+                value: false,
+                label: Text('移動モード'),
+                icon: Icon(Icons.open_with),
+              ),
+              ButtonSegment(
+                value: true,
+                label: Text('捜索モード'),
+                icon: Icon(Icons.search),
+              ),
+            ],
+            selected: {isSearchMode},
+            onSelectionChanged: (Set<bool> newSelection) {
+              setState(() {
+                isSearchMode = newSelection.first;
+              });
+            },
+          ),
+        ],
+      );
+    }
+
+    if (currentPhase == GamePhase.setupCarHuman) {
+      return const Center(
+        child: Text(
+          '好きなビルをタップして、車の隠れ場所を選んでください。',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, color: Colors.black54),
+        ),
+      );
+    }
+
+    if (currentPhase == GamePhase.playing &&
+        playerRole == PlayerRole.criminal &&
+        !isPoliceTurnRunning) {
+      return const Center(
+        child: Text(
+          '緑色のビルをタップして移動してください。',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, color: Colors.black54),
+        ),
+      );
+    }
+
+    // 該当する表示がないフェーズでも領域の高さは確保し、盤面位置がズレないようにする
+    return const SizedBox.shrink();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (currentPhase == GamePhase.roleSelect) {
       return RoleSelectView(onSelectRole: _chooseRole);
     }
+
+    // 左側ログパネル・右側コントロール欄＋盤面、全体の高さを揃えるための合計値
+    const double mainAreaHeight = controlAreaHeight + 12 + boardPixelSize;
 
     return Scaffold(
       appBar: AppBar(
@@ -603,163 +753,72 @@ class _GamePageState extends State<GamePage> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // ステータスヘッダー
+            // 画面上部：ステータスヘッダー／結果バナー切り替え領域（高さ固定）
             Container(
-              color: Colors.indigo[50],
+              width: double.infinity,
+              height: headerAreaHeight,
+              color: currentPhase == GamePhase.gameOver
+                  ? Colors.amber[100]
+                  : Colors.indigo[50],
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'ターン: $currentRound / $maxRounds',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    _statusLabel(),
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: currentPhase == GamePhase.gameOver
-                          ? Colors.red
-                          : Colors.green[800],
-                    ),
-                  ),
-                ],
+              child: Center(
+                child: currentPhase == GamePhase.gameOver
+                    ? _buildResultBanner()
+                    : _buildStatusHeader(),
               ),
             ),
 
-            // 勝利判定ダイアログ
-            if (currentPhase == GamePhase.gameOver)
-              Container(
-                width: double.infinity,
-                color: Colors.amber[100],
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    Text(
-                      gameResultMessage,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 12,
-                      runSpacing: 8,
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed: _restartSameRole,
-                          icon: const Icon(Icons.replay),
-                          label: const Text('連続して遊ぶ（同じ役職で再戦）'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: _startNewGame,
-                          icon: const Icon(Icons.swap_horiz),
-                          label: const Text('役割選択に戻る'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-            // アクションログ（直近数件を履歴として表示。最新ほど濃く表示）
-            LogPanel(logHistory: logHistory),
-
-            // プレイ中の操作コントロール（警察役=人間のみ）
-            if (currentPhase == GamePhase.playing &&
-                playerRole == PlayerRole.police) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '現在操作中: ヘリ${helicopters[currentHeliIndex].id}  ',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(
-                    value: false,
-                    label: Text('移動モード'),
-                    icon: Icon(Icons.open_with),
-                  ),
-                  ButtonSegment(
-                    value: true,
-                    label: Text('捜索モード'),
-                    icon: Icon(Icons.search),
-                  ),
-                ],
-                selected: {isSearchMode},
-                onSelectionChanged: (Set<bool> newSelection) {
-                  setState(() {
-                    isSearchMode = newSelection.first;
-                  });
-                },
-              ),
-            ],
-
-            // 犯人役=人間へのヒント表示
-            if (currentPhase == GamePhase.setupCarHuman)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(
-                  '好きなビルをタップして、車の隠れ場所を選んでください。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: Colors.black54),
-                ),
-              ),
-            if (currentPhase == GamePhase.playing &&
-                playerRole == PlayerRole.criminal &&
-                !isPoliceTurnRunning)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(
-                  '緑色のビルをタップして移動してください。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: Colors.black54),
-                ),
-              ),
-
             const SizedBox(height: 12),
 
-            // ゲーム盤面
-            BoardWidget(
-              boardPixelSize: boardPixelSize,
-              heliMarkerSize: heliMarkerSize,
-              boardSize: boardSize,
-              currentPhase: currentPhase,
-              playerRole: playerRole,
-              carRow: carRow,
-              carCol: carCol,
-              traceGrid: traceGrid,
-              revealedTraces: revealedTraces,
-              searchedRoundGrid: searchedRoundGrid,
-              currentRound: currentRound,
-              searchingRow: searchingRow,
-              searchingCol: searchingCol,
-              helicopters: helicopters,
-              currentHeliIndex: currentHeliIndex,
-              isSearchMode: isSearchMode,
-              isPoliceTurnRunning: isPoliceTurnRunning,
-              getTraceColor: _getTraceColor,
-              onBuildingTap: _onBuildingTap,
-              onIntersectionTap: _onIntersectionTap,
+            // メインエリア：左＝ログパネル／右＝操作コントロール欄＋盤面（PCデスクトップ向け横並び固定レイアウト）
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // 左：ログパネル
+                  LogPanel(
+                    logHistory: logHistory,
+                    width: logPanelWidth,
+                    height: mainAreaHeight,
+                  ),
+                  const SizedBox(width: 16),
+                  // 右：操作コントロール欄（固定高さ）＋盤面（固定位置）
+                  Column(
+                    children: [
+                      SizedBox(
+                        width: boardPixelSize,
+                        height: controlAreaHeight,
+                        child: _buildControlArea(),
+                      ),
+                      const SizedBox(height: 12),
+                      BoardWidget(
+                        boardPixelSize: boardPixelSize,
+                        heliMarkerSize: heliMarkerSize,
+                        boardSize: boardSize,
+                        currentPhase: currentPhase,
+                        playerRole: playerRole,
+                        carRow: carRow,
+                        carCol: carCol,
+                        traceGrid: traceGrid,
+                        revealedTraces: revealedTraces,
+                        searchedRoundGrid: searchedRoundGrid,
+                        currentRound: currentRound,
+                        searchingRow: searchingRow,
+                        searchingCol: searchingCol,
+                        helicopters: helicopters,
+                        currentHeliIndex: currentHeliIndex,
+                        isSearchMode: isSearchMode,
+                        isPoliceTurnRunning: isPoliceTurnRunning,
+                        getTraceColor: _getTraceColor,
+                        onBuildingTap: _onBuildingTap,
+                        onIntersectionTap: _onIntersectionTap,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: 16),

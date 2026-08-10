@@ -43,7 +43,8 @@ class PoliceAi {
         double minDist = double.infinity;
         for (var pos in unsearchedList) {
           double dist = sqrt(
-              pow(pos[0] - moveHeli.x, 2) + pow(pos[1] - moveHeli.y, 2));
+            pow(pos[0] - moveHeli.x, 2) + pow(pos[1] - moveHeli.y, 2),
+          );
           if (dist < minDist) {
             minDist = dist;
             target = pos;
@@ -52,10 +53,14 @@ class PoliceAi {
 
         int nextX = moveHeli.x;
         int nextY = moveHeli.y;
-        if (target[0] > moveHeli.x) nextX++;
-        else if (target[0] < moveHeli.x) nextX--;
-        else if (target[1] > moveHeli.y) nextY++;
-        else if (target[1] < moveHeli.y) nextY--;
+        if (target[0] > moveHeli.x) {
+          nextX++;
+        } else if (target[0] < moveHeli.x)
+          nextX--;
+        else if (target[1] > moveHeli.y)
+          nextY++;
+        else if (target[1] < moveHeli.y)
+          nextY--;
 
         return PoliceAiAction.move(moveHeli, nextX, nextY);
       }

@@ -22,12 +22,11 @@ class _RoadNetworkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final linePaint = Paint()
-      ..color = Colors.blueGrey[300]!.withValues(alpha: 0.9)
+      ..color = Colors.blueGrey[300]!.withOpacity(0.9)
       ..strokeWidth = 5
       ..strokeCap = StrokeCap.round;
 
-    final nodePaint = Paint()
-      ..color = Colors.blueGrey[300]!.withValues(alpha: 0.9);
+    final nodePaint = Paint()..color = Colors.blueGrey[300]!.withOpacity(0.9);
 
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 4; j++) {
@@ -150,10 +149,14 @@ class BoardWidget extends StatelessWidget {
                             playerRole == PlayerRole.criminal &&
                             revealedTraces[r][c];
 
-                        // 捜索済みマーカーの表示判定：捜索したラウンド＋次の1ラウンドのみ表示
+                        // 捜索済みマーカーの表示判定：捜索した「直前の1ターンのみ」表示する。
+                        // （以前は「捜索したラウンド＋次の1ラウンド」＝実質2ターン分表示されており、
+                        //  プレイヤーが捜索済み場所を記憶しなくても済んでしまっていたため、
+                        //  直前1ターンのみに短縮。どこを捜索されたかを覚えておく緊張感を持たせる。
+                        //  なお、AI側が重複捜索を避けるための内部記憶(searchedGrid)は
+                        //  この表示とは別に永続しており、この変更による影響はない）
                         bool showSearchedMarker =
-                            searchedRoundGrid[r][c] != 0 &&
-                            (currentRound - searchedRoundGrid[r][c] <= 1);
+                            searchedRoundGrid[r][c] == currentRound;
 
                         final currentHeli =
                             helicopters.isNotEmpty &&
@@ -278,7 +281,7 @@ class BoardWidget extends StatelessWidget {
                                         ],
                                       ),
                                     ),
-                                  // 捜索済みマーカー：捜索したラウンド＋次の1ラウンドのみ表示（警察・犯人どちらからも見える）
+                                  // 捜索済みマーカー：捜索した直前の1ターンのみ表示（警察・犯人どちらからも見える）
                                   if (showSearchedMarker && !showCar)
                                     Positioned(
                                       bottom: 3,
@@ -286,9 +289,7 @@ class BoardWidget extends StatelessWidget {
                                       child: Container(
                                         padding: const EdgeInsets.all(2),
                                         decoration: BoxDecoration(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.55,
-                                          ),
+                                          color: Colors.black.withOpacity(0.55),
                                           shape: BoxShape.circle,
                                         ),
                                         child: const Icon(
@@ -384,7 +385,7 @@ class BoardWidget extends StatelessWidget {
                               ? (isCurrentHeli
                                     ? Colors.orangeAccent
                                     : Colors.white)
-                              : Colors.white.withValues(alpha: 0.7),
+                              : Colors.white.withOpacity(0.7),
                           width: isCurrentHeli ? 3.5 : 1.5,
                         ),
                         boxShadow: heliIndex != -1
