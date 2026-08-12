@@ -9,6 +9,7 @@ import '../models/player_role.dart';
 import '../models/police_ai_action.dart';
 import 'board_widget.dart';
 import 'log_panel.dart';
+import 'mode_select_view.dart';
 import 'role_select_view.dart';
 
 class GamePage extends StatefulWidget {
@@ -49,6 +50,14 @@ class _GamePageState extends State<GamePage> {
   // 役割・フェーズ
   PlayerRole? playerRole;
   GamePhase currentPhase = GamePhase.roleSelect;
+
+  // ローカル2人対戦モード用に追加。
+  // null        : まだ「1人プレイ／2人対戦」を選んでいない（ModeSelectViewを表示する）
+  // false       : 1人プレイ（AI対戦）を選択済み（従来通りRoleSelectViewを表示）
+  // true        : ローカル2人対戦を選択済み（RoleSelectViewを2人対戦向け文言で表示）
+  // 既存のGamePhaseには新しい値を追加していない。currentPhase == roleSelect の間、
+  // この変数の値だけでどちらの画面を出すかを切り替える。
+  bool? isTwoPlayerMode;
 
   // 車の位置
   int carRow = -1;
@@ -140,7 +149,16 @@ class _GamePageState extends State<GamePage> {
     setState(() {
       currentPhase = GamePhase.roleSelect;
       playerRole = null;
+      isTwoPlayerMode = null;
       _resetBoardState();
+    });
+  }
+
+  // ModeSelectViewでの選択を受け取る。ここではモードを記録するのみで、
+  // 役割（playerRole）の決定は従来通り _chooseRole に委ねる（変更なし）。
+  void _choosePlayMode(PlayMode mode) {
+    setState(() {
+      isTwoPlayerMode = mode == PlayMode.localTwoPlayer;
     });
   }
 
@@ -895,7 +913,13 @@ class _GamePageState extends State<GamePage> {
   @override
   Widget build(BuildContext context) {
     if (currentPhase == GamePhase.roleSelect) {
-      return RoleSelectView(onSelectRole: _chooseRole);
+      if (isTwoPlayerMode == null) {
+        return ModeSelectView(onSelectMode: _choosePlayMode);
+      }
+      return RoleSelectView(
+        onSelectRole: _chooseRole,
+        isTwoPlayerMode: isTwoPlayerMode!,
+      );
     }
 
     // 左側ログパネル・右側コントロール欄＋盤面、全体の高さを揃えるための合計値
