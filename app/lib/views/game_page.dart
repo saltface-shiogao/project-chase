@@ -38,10 +38,10 @@ class _GamePageState extends State<GamePage> {
   // 通常時（ターン数・フェーズ表示）とゲーム終了時（結果メッセージ＋再戦ボタン）の
   // どちらの内容が入っても、この高さは変えない＝盤面の位置がズレない。
   static const double headerAreaHeight = 148;
-  // 盤面の左上に置く「操作コントロール／ヒント」領域の高さ
-  // （警察役の移動/捜索モード切替、犯人役へのヒント文言などが入る）。
+  // 盤面の左上に置く「操作コントロール／確認」領域の高さ
+  // （警察役の「現在操作中のヘリ」表示・確定/キャンセルボタン、犯人役へのヒント文言などが入る）。
   // フェーズによって表示内容が有る/無いが変わっても、高さは固定する。
-  static const double controlAreaHeight = 84;
+  static const double controlAreaHeight = 96;
   // 左側ログパネルの幅（折り返し表示でも読みやすいよう少し広めに設定。
   // この値はゲーム中・ゲーム終了時を通じて変わらない固定値）
   static const double logPanelWidth = 260;
@@ -60,9 +60,11 @@ class _GamePageState extends State<GamePage> {
   late List<List<bool>> revealedTraces;
   // 一度でも捜索されたことがあるか（AI警察が同じ場所を無駄に捜索しないための記録・永続）
   late List<List<bool>> searchedGrid;
-  // 何ラウンド目に捜索したか（表示用。0=未捜索）。
-  // 「捜索したラウンド＋次の1ラウンドのみ表示」の判定に使う。AIの記憶(searchedGrid)には影響しない。
-  late List<List<int>> searchedRoundGrid;
+  // 表示用：ヘリ1〜3それぞれの「直近の捜索場所」を保持する（インデックス=id-1、値は[row, col]、
+  // 未捜索は[-1, -1]）。あるヘリが新たに捜索すると、そのヘリ自身のエントリだけが上書きされる。
+  // 盤面上には常に最大3箇所（各ヘリ1箇所ずつ）のマーカーが同時に表示され得る。
+  // AIの内部記憶(searchedGrid)には影響しない。
+  late List<List<int>> lastSearchedByHeli;
 
   // 現在アニメーション中（捜索演出中）のビル座標。捜索していない時は-1。
   int searchingRow = -1;
@@ -75,8 +77,13 @@ class _GamePageState extends State<GamePage> {
   List<Helicopter> helicopters = [];
   int currentHeliIndex = 0;
 
-  // モード（移動 or 捜索）：警察役=人間の時のみ使用
-  bool isSearchMode = false;
+  // 警察役=人間が、確定前に選択している「候補」（誤操作防止のための確認ステップ用）。
+  // 交差点（移動先）またはビル（捜索先）のどちらか一方のみを保持する。
+  // 「確定」ボタンを押すまで、実際の移動・捜索は実行されない。
+  int pendingRow = -1;
+  int pendingCol = -1;
+  bool pendingIsSearch = false; // true: ビル（捜索候補）／false: 交差点（移動候補）
+  bool get _hasPendingAction => pendingRow != -1 && pendingCol != -1;
 
   // 警察AIが行動中かどうか（犯人役=人間の時、この間は操作をブロックする）
   bool isPoliceTurnRunning = false;
@@ -106,7 +113,9 @@ class _GamePageState extends State<GamePage> {
     carRow = -1;
     carCol = -1;
     currentHeliIndex = 0;
-    isSearchMode = false;
+    pendingRow = -1;
+    pendingCol = -1;
+    pendingIsSearch = false;
     isPoliceTurnRunning = false;
     searchingRow = -1;
     searchingCol = -1;
@@ -122,10 +131,7 @@ class _GamePageState extends State<GamePage> {
       boardSize,
       (_) => List.filled(boardSize, false),
     );
-    searchedRoundGrid = List.generate(
-      boardSize,
-      (_) => List.filled(boardSize, 0),
-    );
+    lastSearchedByHeli = List.generate(3, (_) => [-1, -1]);
     helicopters = [];
   }
 
@@ -249,6 +255,10 @@ class _GamePageState extends State<GamePage> {
 
   // ============ 警察役=人間 の操作 ============
 
+  // ヘリ1機の行動完了時の処理。
+  // 次に操作するヘリは「まだ行動していないヘリ」の中から自動的に1つ候補として選ばれるが、
+  // これはあくまでデフォルトの提案であり、プレイヤーは盤面上の別の未行動ヘリをタップして
+  // 自由に操作順を変更できる（_selectHelicopterToOperate参照）。
   void _onHelicopterActed() {
     helicopters[currentHeliIndex].hasActedThisTurn = true;
 
@@ -257,7 +267,9 @@ class _GamePageState extends State<GamePage> {
     if (nextHeliIndex != -1) {
       setState(() {
         currentHeliIndex = nextHeliIndex;
-        _pushLog('次は ヘリ${helicopters[currentHeliIndex].id} のターンです。');
+        _pushLog(
+          'ヘリ${helicopters[currentHeliIndex].id} の行動をどうぞ（他の未行動ヘリを選ぶこともできます）。',
+        );
       });
     } else {
       _advanceTurnAICar();
@@ -301,7 +313,9 @@ class _GamePageState extends State<GamePage> {
     setState(() {
       currentRound++;
       currentHeliIndex = 0;
-      isSearchMode = false;
+      pendingRow = -1;
+      pendingCol = -1;
+      pendingIsSearch = false;
       _pushLog('【第$currentRoundラウンド】犯人が移動しました。ヘリ1の行動を選択してください。');
     });
   }
@@ -311,6 +325,13 @@ class _GamePageState extends State<GamePage> {
       return;
 
     final currentHeli = helicopters[currentHeliIndex];
+
+    if (currentHeli.hasActedThisTurn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('このヘリは行動済みです。まだ行動していないヘリを選択してください。')),
+      );
+      return;
+    }
 
     int dr = (currentHeli.row - targetRow).abs();
     int dc = (currentHeli.col - targetCol).abs();
@@ -343,6 +364,13 @@ class _GamePageState extends State<GamePage> {
 
     final currentHeli = helicopters[currentHeliIndex];
 
+    if (currentHeli.hasActedThisTurn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('このヘリは行動済みです。まだ行動していないヘリを選択してください。')),
+      );
+      return;
+    }
+
     bool isAdjacent =
         (r == currentHeli.row || r == currentHeli.row + 1) &&
         (c == currentHeli.col || c == currentHeli.col + 1);
@@ -363,7 +391,7 @@ class _GamePageState extends State<GamePage> {
     if (!mounted) return;
 
     searchedGrid[r][c] = true;
-    searchedRoundGrid[r][c] = currentRound;
+    lastSearchedByHeli[currentHeli.id - 1] = [r, c];
 
     if (r == carRow && c == carCol) {
       setState(() {
@@ -517,7 +545,7 @@ class _GamePageState extends State<GamePage> {
     if (!mounted) return;
 
     searchedGrid[r][c] = true;
-    searchedRoundGrid[r][c] = currentRound;
+    lastSearchedByHeli[heli.id - 1] = [r, c];
 
     if (r == carRow && c == carCol) {
       setState(() {
@@ -564,16 +592,48 @@ class _GamePageState extends State<GamePage> {
     return '';
   }
 
-  // 盤面（BoardWidget）からのタップを受け取り、フェーズ・役割に応じて処理を振り分ける
+  // 盤面（BoardWidget）からのタップを受け取り、フェーズ・役割に応じて処理を振り分ける。
+  // 警察役=人間の場合、タップは即実行せず「候補」として保持し、確定ボタンで実行する
+  // （誤操作防止のための確認ステップ。犯人役=人間の移動は従来通り即時実行）。
   void _onBuildingTap(int r, int c) {
     if (currentPhase == GamePhase.setupCarHuman) {
       _selectCarInitialPositionHuman(r, c);
-    } else if (currentPhase == GamePhase.playing) {
-      if (playerRole == PlayerRole.police && isSearchMode) {
-        _searchBuilding(r, c);
-      } else if (playerRole == PlayerRole.criminal) {
-        _moveCarHuman(r, c);
+      return;
+    }
+
+    if (currentPhase != GamePhase.playing) return;
+
+    if (playerRole == PlayerRole.criminal) {
+      _moveCarHuman(r, c);
+      return;
+    }
+
+    if (playerRole == PlayerRole.police) {
+      final currentHeli = helicopters[currentHeliIndex];
+
+      if (currentHeli.hasActedThisTurn) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('このヘリは行動済みです。まだ行動していないヘリを選択してください。')),
+        );
+        return;
       }
+
+      bool isAdjacent =
+          (r == currentHeli.row || r == currentHeli.row + 1) &&
+          (c == currentHeli.col || c == currentHeli.col + 1);
+
+      if (!isAdjacent) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('このビルは選択中のヘリの捜索範囲外です。')));
+        return;
+      }
+
+      setState(() {
+        pendingRow = r;
+        pendingCol = c;
+        pendingIsSearch = true;
+      });
     }
   }
 
@@ -581,11 +641,106 @@ class _GamePageState extends State<GamePage> {
     if (currentPhase == GamePhase.setupHelicopters &&
         playerRole == PlayerRole.police) {
       _selectHelicopterInitialPosition(i, j);
-    } else if (currentPhase == GamePhase.playing &&
-        playerRole == PlayerRole.police &&
-        !isSearchMode) {
-      _moveHelicopter(i, j);
+      return;
     }
+
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+      return;
+
+    // タップした交差点にヘリがいる場合は、そのヘリを「これから操作するヘリ」として
+    // 選択する（移動として扱わない）。プレイヤーは3機を好きな順番で操作できる。
+    int heliIndexAtCell = helicopters.indexWhere(
+      (h) => h.row == i && h.col == j,
+    );
+    if (heliIndexAtCell != -1) {
+      _selectHelicopterToOperate(heliIndexAtCell);
+      return;
+    }
+
+    // 空いている交差点をタップした場合は、選択中のヘリの移動先「候補」として保持する
+    final currentHeli = helicopters[currentHeliIndex];
+
+    if (currentHeli.hasActedThisTurn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('このヘリは行動済みです。まだ行動していないヘリを選択してください。')),
+      );
+      return;
+    }
+
+    int dr = (currentHeli.row - i).abs();
+    int dc = (currentHeli.col - j).abs();
+    if (!((dr == 1 && dc == 0) || (dr == 0 && dc == 1))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('タテヨコに隣接する交差点のみ移動先として選択できます。')),
+      );
+      return;
+    }
+
+    setState(() {
+      pendingRow = i;
+      pendingCol = j;
+      pendingIsSearch = false;
+    });
+  }
+
+  // 警察役=人間が、次に操作するヘリを自由に選択する。
+  // 1ターンで3機とも行動することは変わらないが、操作する順番はプレイヤーが決められる。
+  // 既に行動済みのヘリは選択できない（その旨をメッセージで案内する）。
+  // ヘリを切り替えた場合、直前に選んでいた候補（別のヘリのもの）は破棄する。
+  void _selectHelicopterToOperate(int index) {
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+      return;
+
+    final target = helicopters[index];
+
+    if (target.hasActedThisTurn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('このヘリは今ターン、すでに行動済みです。他のヘリを選んでください。')),
+      );
+      return;
+    }
+
+    if (index == currentHeliIndex) return; // 既に選択中のヘリを再度タップした場合は何もしない
+
+    setState(() {
+      currentHeliIndex = index;
+      pendingRow = -1;
+      pendingCol = -1;
+      pendingIsSearch = false;
+      _pushLog('ヘリ${target.id} を選択しました。');
+    });
+  }
+
+  // 候補（pendingRow/pendingCol）を確定し、実際に移動または捜索を実行する。
+  // 実行後は候補をクリアする。実際の移動・捜索ロジック自体は
+  // 既存の _moveHelicopter / _searchBuilding にそのまま委譲する（ロジック変更なし）。
+  void _confirmPendingAction() {
+    if (!_hasPendingAction) return;
+
+    final r = pendingRow;
+    final c = pendingCol;
+    final isSearch = pendingIsSearch;
+
+    setState(() {
+      pendingRow = -1;
+      pendingCol = -1;
+      pendingIsSearch = false;
+    });
+
+    if (isSearch) {
+      _searchBuilding(r, c);
+    } else {
+      _moveHelicopter(r, c);
+    }
+  }
+
+  // 選択中の候補をキャンセルする（実行せず破棄するのみ）
+  void _cancelPendingAction() {
+    setState(() {
+      pendingRow = -1;
+      pendingCol = -1;
+      pendingIsSearch = false;
+    });
   }
 
   // ============ 画面上部：ステータスヘッダー／結果バナー（表示専用・ロジックなし） ============
@@ -664,33 +819,48 @@ class _GamePageState extends State<GamePage> {
 
   Widget _buildControlArea() {
     if (currentPhase == GamePhase.playing && playerRole == PlayerRole.police) {
+      if (_hasPendingAction) {
+        final actionLabel = pendingIsSearch ? '捜索' : '移動';
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'ヘリ${helicopters[currentHeliIndex].id}：$actionLabel先 ($pendingRow, $pendingCol) を確定しますか？',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _confirmPendingAction,
+                  icon: const Icon(Icons.check),
+                  label: Text('$actionLabelを確定'),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: _cancelPendingAction,
+                  icon: const Icon(Icons.close),
+                  label: const Text('キャンセル'),
+                ),
+              ],
+            ),
+          ],
+        );
+      }
+
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
-            '現在操作中: ヘリ${helicopters[currentHeliIndex].id}',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            '現在操作中: ヘリ${helicopters[currentHeliIndex].id}（盤面のヘリをタップで選択変更可）',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
           ),
-          const SizedBox(height: 8),
-          SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(
-                value: false,
-                label: Text('移動モード'),
-                icon: Icon(Icons.open_with),
-              ),
-              ButtonSegment(
-                value: true,
-                label: Text('捜索モード'),
-                icon: Icon(Icons.search),
-              ),
-            ],
-            selected: {isSearchMode},
-            onSelectionChanged: (Set<bool> newSelection) {
-              setState(() {
-                isSearchMode = newSelection.first;
-              });
-            },
+          const SizedBox(height: 4),
+          const Text(
+            '交差点をタップで移動先、ビルをタップで捜索先を選択',
+            style: TextStyle(fontSize: 12, color: Colors.black54),
           ),
         ],
       );
@@ -803,14 +973,15 @@ class _GamePageState extends State<GamePage> {
                         carCol: carCol,
                         traceGrid: traceGrid,
                         revealedTraces: revealedTraces,
-                        searchedRoundGrid: searchedRoundGrid,
-                        currentRound: currentRound,
+                        lastSearchedByHeli: lastSearchedByHeli,
                         searchingRow: searchingRow,
                         searchingCol: searchingCol,
                         helicopters: helicopters,
                         currentHeliIndex: currentHeliIndex,
-                        isSearchMode: isSearchMode,
                         isPoliceTurnRunning: isPoliceTurnRunning,
+                        pendingRow: pendingRow,
+                        pendingCol: pendingCol,
+                        pendingIsSearch: pendingIsSearch,
                         getTraceColor: _getTraceColor,
                         onBuildingTap: _onBuildingTap,
                         onIntersectionTap: _onIntersectionTap,

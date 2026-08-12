@@ -66,14 +66,20 @@ class BoardWidget extends StatelessWidget {
   final int carCol;
   final List<List<int>> traceGrid;
   final List<List<bool>> revealedTraces;
-  final List<List<int>> searchedRoundGrid;
-  final int currentRound;
+  // ヘリごとの「直近の捜索場所」。要素数3（ヘリ1〜3に対応、インデックス=id-1）で、
+  // 各要素は [row, col]（未捜索時は [-1, -1]）。盤面上には最大3箇所同時に表示される。
+  final List<List<int>> lastSearchedByHeli;
   final int searchingRow;
   final int searchingCol;
   final List<Helicopter> helicopters;
   final int currentHeliIndex;
-  final bool isSearchMode;
   final bool isPoliceTurnRunning;
+  // 警察役=人間が、確定前に選択している「候補」の座標（誤操作防止のための確認ステップ用）。
+  // 未選択時は pendingRow/pendingCol ともに -1。
+  final int pendingRow;
+  final int pendingCol;
+  // true: pendingRow/pendingColはビル（捜索候補）／false: 交差点（移動候補）
+  final bool pendingIsSearch;
   final Color Function(int roundNumber) getTraceColor;
   final void Function(int r, int c) onBuildingTap;
   final void Function(int i, int j) onIntersectionTap;
@@ -89,14 +95,15 @@ class BoardWidget extends StatelessWidget {
     required this.carCol,
     required this.traceGrid,
     required this.revealedTraces,
-    required this.searchedRoundGrid,
-    required this.currentRound,
+    required this.lastSearchedByHeli,
     required this.searchingRow,
     required this.searchingCol,
     required this.helicopters,
     required this.currentHeliIndex,
-    required this.isSearchMode,
     required this.isPoliceTurnRunning,
+    required this.pendingRow,
+    required this.pendingCol,
+    required this.pendingIsSearch,
     required this.getTraceColor,
     required this.onBuildingTap,
     required this.onIntersectionTap,
@@ -104,6 +111,18 @@ class BoardWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 現在操作中のヘリ（警察役=人間のプレイ中のみ意味を持つ）
+    final currentHeli =
+        helicopters.isNotEmpty &&
+            currentPhase == GamePhase.playing &&
+            playerRole == PlayerRole.police
+        ? helicopters[currentHeliIndex]
+        : null;
+    // 選択中のヘリがまだ行動していない場合のみ、移動・捜索の候補ハイライトを出す
+    final activeHeli = currentHeli != null && !currentHeli.hasActedThisTurn
+        ? currentHeli
+        : null;
+
     return Center(
       child: Container(
         width: boardPixelSize,
@@ -149,29 +168,30 @@ class BoardWidget extends StatelessWidget {
                             playerRole == PlayerRole.criminal &&
                             revealedTraces[r][c];
 
-                        // 捜索済みマーカーの表示判定：捜索した「直前の1ターンのみ」表示する。
-                        // （以前は「捜索したラウンド＋次の1ラウンド」＝実質2ターン分表示されており、
-                        //  プレイヤーが捜索済み場所を記憶しなくても済んでしまっていたため、
-                        //  直前1ターンのみに短縮。どこを捜索されたかを覚えておく緊張感を持たせる。
-                        //  なお、AI側が重複捜索を避けるための内部記憶(searchedGrid)は
-                        //  この表示とは別に永続しており、この変更による影響はない）
-                        bool showSearchedMarker =
-                            searchedRoundGrid[r][c] == currentRound;
+                        // 捜索済みマーカーの表示判定：ヘリ1〜3それぞれの「直近の捜索場所」と
+                        // 一致するかどうかを見る。同じラウンド内で複数ヘリが別の場所を捜索した
+                        // 場合、それぞれの跡が同時に（最大3箇所）残る。あるヘリが新たに別の場所を
+                        // 捜索すると、そのヘリ自身の前回の跡だけが消えて新しい場所に移る
+                        // （他のヘリの跡には影響しない）。
+                        bool showSearchedMarker = lastSearchedByHeli.any(
+                          (pos) => pos[0] == r && pos[1] == c,
+                        );
 
-                        final currentHeli =
-                            helicopters.isNotEmpty &&
-                                currentPhase == GamePhase.playing &&
-                                playerRole == PlayerRole.police
-                            ? helicopters[currentHeliIndex]
-                            : null;
+                        // 捜索候補（未確定）：警察役=人間がタップしたが、まだ「確定」ボタンを
+                        // 押していないビル。誤操作防止のため、確定するまで実際の捜索は行われない。
+                        bool isPendingSearch =
+                            pendingIsSearch &&
+                            pendingRow == r &&
+                            pendingCol == c;
+
+                        // 選択中ヘリの捜索可能範囲（周囲4マス）。モード切替は廃止したため、
+                        // ヘリが選択されていて未行動であれば常にガイドとして表示する。
                         bool isSearchableArea =
                             currentPhase == GamePhase.playing &&
                             playerRole == PlayerRole.police &&
-                            isSearchMode &&
-                            currentHeli != null &&
-                            (r == currentHeli.row ||
-                                r == currentHeli.row + 1) &&
-                            (c == currentHeli.col || c == currentHeli.col + 1);
+                            activeHeli != null &&
+                            (r == activeHeli.row || r == activeHeli.row + 1) &&
+                            (c == activeHeli.col || c == activeHeli.col + 1);
 
                         bool isMoveCandidate =
                             currentPhase == GamePhase.playing &&
@@ -188,6 +208,8 @@ class BoardWidget extends StatelessWidget {
                         Color cellColor;
                         if (showCar) {
                           cellColor = Colors.amber[300]!;
+                        } else if (isPendingSearch) {
+                          cellColor = Colors.orange[300]!;
                         } else if (isSearchableArea) {
                           cellColor = Colors.blue[200]!;
                         } else if (isMoveCandidate) {
@@ -204,7 +226,12 @@ class BoardWidget extends StatelessWidget {
                               decoration: BoxDecoration(
                                 color: cellColor,
                                 borderRadius: BorderRadius.circular(6),
-                                border: (isSearchableArea || isMoveCandidate)
+                                border: isPendingSearch
+                                    ? Border.all(
+                                        color: Colors.deepOrange,
+                                        width: 3,
+                                      )
+                                    : (isSearchableArea || isMoveCandidate)
                                     ? Border.all(
                                         color: isMoveCandidate
                                             ? Colors.green
@@ -281,7 +308,7 @@ class BoardWidget extends StatelessWidget {
                                         ],
                                       ),
                                     ),
-                                  // 捜索済みマーカー：捜索した直前の1ターンのみ表示（警察・犯人どちらからも見える）
+                                  // 捜索済みマーカー：ヘリごとの直近の捜索場所（最大3箇所同時表示）
                                   if (showSearchedMarker && !showCar)
                                     Positioned(
                                       bottom: 3,
@@ -365,48 +392,120 @@ class BoardWidget extends StatelessWidget {
                     currentPhase == GamePhase.playing &&
                     playerRole == PlayerRole.police &&
                     heliIndex == currentHeliIndex;
+                // このヘリが今ターン、既に行動済みかどうか（警察役=人間の操作順が
+                // 自由に選べるようになったため、どれが行動済みか一目で分かるようにする）
+                bool isActed =
+                    heliIndex != -1 && helicopters[heliIndex].hasActedThisTurn;
+
+                // 空いている交差点が、選択中ヘリの移動先として有効（タテヨコ隣接）かどうか
+                bool isValidMoveTarget = false;
+                if (heliIndex == -1 &&
+                    currentPhase == GamePhase.playing &&
+                    playerRole == PlayerRole.police &&
+                    activeHeli != null) {
+                  int dr = (activeHeli.row - i).abs();
+                  int dc = (activeHeli.col - j).abs();
+                  isValidMoveTarget =
+                      (dr == 1 && dc == 0) || (dr == 0 && dc == 1);
+                }
+
+                // 移動候補（未確定）：タップしたがまだ「確定」ボタンを押していない交差点
+                bool isPendingMove =
+                    heliIndex == -1 &&
+                    !pendingIsSearch &&
+                    pendingRow == i &&
+                    pendingCol == j;
+
+                Color emptyRingColor;
+                double emptyRingWidth;
+                Color emptyFillColor;
+                if (isPendingMove) {
+                  emptyRingColor = Colors.deepOrange;
+                  emptyRingWidth = 3;
+                  emptyFillColor = Colors.orange.withOpacity(0.85);
+                } else if (isValidMoveTarget) {
+                  emptyRingColor = Colors.greenAccent.shade400;
+                  emptyRingWidth = 2.5;
+                  emptyFillColor = Colors.transparent;
+                } else {
+                  emptyRingColor = Colors.white.withOpacity(0.7);
+                  emptyRingWidth = 1.5;
+                  emptyFillColor = Colors.transparent;
+                }
 
                 return Positioned(
                   top: top,
                   left: left,
                   child: GestureDetector(
                     onTap: () => onIntersectionTap(i, j),
-                    child: Container(
-                      width: heliMarkerSize,
-                      height: heliMarkerSize,
-                      decoration: BoxDecoration(
-                        color: heliIndex != -1
-                            ? heliColors[(helicopters[heliIndex].id - 1) %
-                                  heliColors.length]
-                            : Colors.transparent,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: heliIndex != -1
-                              ? (isCurrentHeli
-                                    ? Colors.orangeAccent
-                                    : Colors.white)
-                              : Colors.white.withOpacity(0.7),
-                          width: isCurrentHeli ? 3.5 : 1.5,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          width: heliMarkerSize,
+                          height: heliMarkerSize,
+                          decoration: BoxDecoration(
+                            color: heliIndex != -1
+                                ? heliColors[(helicopters[heliIndex].id - 1) %
+                                          heliColors.length]
+                                      .withOpacity(isActed ? 0.4 : 1.0)
+                                : emptyFillColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: heliIndex != -1
+                                  ? (isCurrentHeli
+                                        ? Colors.orangeAccent
+                                        : Colors.white)
+                                  : emptyRingColor,
+                              width: heliIndex != -1
+                                  ? (isCurrentHeli ? 3.5 : 1.5)
+                                  : emptyRingWidth,
+                            ),
+                            boxShadow: heliIndex != -1
+                                ? const [
+                                    BoxShadow(
+                                      color: Colors.black38,
+                                      blurRadius: 3,
+                                      offset: Offset(0, 1),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Center(
+                            child: heliIndex != -1
+                                ? const Icon(
+                                    Icons.local_police,
+                                    color: Colors.white,
+                                    size: 22,
+                                  )
+                                : (isPendingMove
+                                      ? const Icon(
+                                          Icons.flag,
+                                          color: Colors.white,
+                                          size: 18,
+                                        )
+                                      : const SizedBox()),
+                          ),
                         ),
-                        boxShadow: heliIndex != -1
-                            ? const [
-                                BoxShadow(
-                                  color: Colors.black38,
-                                  blurRadius: 3,
-                                  offset: Offset(0, 1),
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Center(
-                        child: heliIndex != -1
-                            ? const Icon(
-                                Icons.local_police,
+                        // 行動済みバッジ：警察役=人間がどのヘリを操作済みか一目で分かるように表示
+                        if (isActed)
+                          Positioned(
+                            bottom: -2,
+                            right: -2,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.black87,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.check,
                                 color: Colors.white,
-                                size: 22,
-                              )
-                            : const SizedBox(),
-                      ),
+                                size: 11,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 );
