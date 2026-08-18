@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 
 import '../ai/criminal_ai.dart';
 import '../ai/police_ai.dart';
+import '../models/app_theme.dart';
 import '../models/game_phase.dart';
 import '../models/helicopter.dart';
 import '../models/player_role.dart';
 import '../models/police_ai_action.dart';
 import 'board_widget.dart';
+import 'handoff_view.dart';
 import 'log_panel.dart';
 import 'mode_select_view.dart';
 import 'role_select_view.dart';
@@ -58,6 +60,22 @@ class _GamePageState extends State<GamePage> {
   // 既存のGamePhaseには新しい値を追加していない。currentPhase == roleSelect の間、
   // この変数の値だけでどちらの画面を出すかを切り替える。
   bool? isTwoPlayerMode;
+
+  // ローカル2人対戦用に追加。
+  // HandoffView（受け渡し画面）の「続ける」ボタンを押した後に、
+  // どのフェーズへ進むかを保持する。
+  // - setupCarHuman : セットアップ中（警察配置→犯人へ受け渡し）の場合
+  // - playing       : それ以外（ラウンド中の受け渡し、または犯人配置→警察へ受け渡しで
+  //                    ラウンド1を開始する場合）
+  GamePhase _phaseAfterHandoff = GamePhase.playing;
+
+  // ローカル2人対戦用に追加。
+  // 「受け渡し先」（handoffToCriminal / handoffToPolice）が決まった直後、
+  // 即座に画面を切り替えるのではなく、いったんこの変数にセットして
+  // 確認オーバーレイ（_buildHandoffConfirmOverlay）を表示する。
+  // これにより、直前の操作結果を見たまま「次のプレイヤーに渡してよろしいですか？」と
+  // ワンクッション置いてから受け渡し画面に進める。nullの間は通常表示。
+  GamePhase? _pendingHandoffPhase;
 
   // 車の位置
   int carRow = -1;
@@ -130,6 +148,8 @@ class _GamePageState extends State<GamePage> {
     searchingCol = -1;
     gameResultMessage = '';
     logHistory = [];
+    _phaseAfterHandoff = GamePhase.playing;
+    _pendingHandoffPhase = null;
 
     traceGrid = List.generate(boardSize, (_) => List.filled(boardSize, 0));
     revealedTraces = List.generate(
@@ -154,11 +174,23 @@ class _GamePageState extends State<GamePage> {
     });
   }
 
-  // ModeSelectViewでの選択を受け取る。ここではモードを記録するのみで、
-  // 役割（playerRole）の決定は従来通り _chooseRole に委ねる（変更なし）。
+  // ModeSelectViewでの選択を受け取る。
+  // 1人プレイ：従来通りモードを記録するのみで、役割決定は _chooseRole に委ねる。
+  // ローカル2人対戦：2人対戦は必ず警察側のヘリ配置から始まり、役割を選ぶ余地が
+  // ないため、RoleSelectView自体を経由せず直接ヘリ配置フェーズへ進む。
   void _choosePlayMode(PlayMode mode) {
+    if (mode == PlayMode.localTwoPlayer) {
+      setState(() {
+        isTwoPlayerMode = true;
+        playerRole = PlayerRole.police;
+        currentPhase = GamePhase.setupHelicopters;
+        _pushLog('【セットアップ】警察側のヘリコプター(3機)の配置場所を選んでください。');
+      });
+      return;
+    }
+
     setState(() {
-      isTwoPlayerMode = mode == PlayMode.localTwoPlayer;
+      isTwoPlayerMode = false;
     });
   }
 
@@ -167,6 +199,18 @@ class _GamePageState extends State<GamePage> {
   // ※ ai/criminal_ai.dart・ai/police_ai.dart は状態を持たない純粋関数のみで
   //   構成されているため、AI側で別途リセットすべき内部状態は存在しない。
   void _restartSameRole() {
+    if (isTwoPlayerMode == true) {
+      setState(() {
+        _resetBoardState();
+      });
+      setState(() {
+        playerRole = PlayerRole.police;
+        currentPhase = GamePhase.setupHelicopters;
+        _pushLog('【セットアップ】警察側のヘリコプター(3機)の配置場所を選んでください。');
+      });
+      return;
+    }
+
     if (playerRole == null) {
       _startNewGame();
       return;
@@ -221,13 +265,24 @@ class _GamePageState extends State<GamePage> {
         _pushLog(
           'ヘリ${helicopters.length}を配置しました。残りのヘリを配置してください（あと${3 - helicopters.length}機）。',
         );
-      } else {
-        _placeCarRandomly();
-        currentPhase = GamePhase.playing;
-        currentHeliIndex = 0;
-        _pushLog('警察の配置完了。犯人はどこかのビルに身を隠しました。');
-        _pushLog('【第1ラウンド開始】ヘリ1の行動を選択してください。');
+        return;
       }
+
+      if (isTwoPlayerMode == true) {
+        // 2人対戦：ここでは車を自動配置せず、確認オーバーレイを経て
+        // 犯人プレイヤーへ受け渡す。playerRoleの切り替えは、確認後に
+        // 実際にhandoff画面へ入る時点で行う（A案）。
+        _phaseAfterHandoff = GamePhase.setupCarHuman;
+        _pendingHandoffPhase = GamePhase.handoffToCriminal;
+        _pushLog('警察のヘリ配置が完了しました。');
+        return;
+      }
+
+      _placeCarRandomly();
+      currentPhase = GamePhase.playing;
+      currentHeliIndex = 0;
+      _pushLog('警察の配置完了。犯人はどこかのビルに身を隠しました。');
+      _pushLog('【第1ラウンド開始】ヘリ1の行動を選択してください。');
     });
   }
 
@@ -263,12 +318,126 @@ class _GamePageState extends State<GamePage> {
       carRow = r;
       carCol = c;
       traceGrid[r][c] = 1;
+    });
+
+    if (isTwoPlayerMode == true) {
+      setState(() {
+        _phaseAfterHandoff = GamePhase.playing;
+        _pendingHandoffPhase = GamePhase.handoffToPolice;
+        _pushLog('犯人プレイヤーが隠れ場所を選び終えました。');
+      });
+      return;
+    }
+
+    setState(() {
       currentPhase = GamePhase.playing;
       _pushLog('あなたはビル($r, $c)に身を隠しました。');
       _pushLog('【第1ラウンド開始】警察が行動します…');
     });
 
     _runPoliceAITurn();
+  }
+
+  // ============ ローカル2人対戦：受け渡し画面（HandoffView）確定処理 ============
+
+  // HandoffViewの「続ける」ボタンが押されたときの共通処理。
+  // playerRoleの切り替え自体は _confirmProceedToHandoff で
+  // 既に完了しているため、ここでは _phaseAfterHandoff に応じて
+  // 次のフェーズへ進め、そのフェーズに応じた案内ログを出すだけでよい。
+  void _confirmHandoff() {
+    setState(() {
+      currentPhase = _phaseAfterHandoff;
+
+      if (_phaseAfterHandoff == GamePhase.setupCarHuman) {
+        _pushLog('あなたの車の隠れ場所（ビル）を1つタップして選んでください。');
+      } else if (playerRole == PlayerRole.police) {
+        for (var h in helicopters) {
+          h.hasActedThisTurn = false;
+        }
+        currentHeliIndex = 0;
+        _pushLog(
+          '【第$currentRoundラウンド】ヘリ${helicopters[currentHeliIndex].id}の行動を選択してください。',
+        );
+      } else {
+        _pushLog('緑色のビルをタップして移動してください。');
+      }
+    });
+  }
+
+  // 直前の操作結果が見えている画面の上に出す「受け渡し確認」オーバーレイの
+  // ボタンが押されたときの処理。ここで初めてplayerRoleとcurrentPhaseを
+  // 実際に切り替え、HandoffView（画面全体を差し替える受け渡し画面）へ進む。
+  void _confirmProceedToHandoff() {
+    if (_pendingHandoffPhase == null) return;
+    final target = _pendingHandoffPhase!;
+    setState(() {
+      playerRole = target == GamePhase.handoffToCriminal
+          ? PlayerRole.criminal
+          : PlayerRole.police;
+      currentPhase = target;
+      _pendingHandoffPhase = null;
+    });
+  }
+
+  // 受け渡し確認オーバーレイ本体。直前の画面（盤面・ログ）はそのまま透けて
+  // 見える状態で、その上に半透明の幕＋確認カードを重ねる。
+  // ここではまだplayerRoleを切り替えていないため、表示中の盤面は
+  // 直前のプレイヤー自身の情報のまま（非公開情報の漏洩にはならない）。
+  Widget _buildHandoffConfirmOverlay() {
+    final theme = AppTheme.boardGame();
+    final bool toCriminal = _pendingHandoffPhase == GamePhase.handoffToCriminal;
+    final String message = toCriminal
+        ? '次は犯人プレイヤーの番です。\n端末を渡してよろしいですか？'
+        : '次は警察プレイヤーの番です。\n端末を渡してよろしいですか？';
+
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.55),
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.all(32),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackground,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  toCriminal ? Icons.directions_car : Icons.local_police,
+                  color: theme.inkColor,
+                  size: 40,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: theme.inkColor,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _confirmProceedToHandoff,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.pendingSearchColor,
+                    foregroundColor: theme.inkColor,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 14,
+                    ),
+                  ),
+                  child: const Text('次のプレイヤーに渡す'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // ============ 警察役=人間 の操作 ============
@@ -289,9 +458,43 @@ class _GamePageState extends State<GamePage> {
           'ヘリ${helicopters[currentHeliIndex].id} の行動をどうぞ（他の未行動ヘリを選ぶこともできます）。',
         );
       });
-    } else {
-      _advanceTurnAICar();
+      return;
     }
+
+    if (isTwoPlayerMode == true) {
+      // 3機とも行動完了。犯人プレイヤーへ受け渡す前に、勝敗条件を確認する
+      // （タイミングは1人プレイの _advanceTurnAICar と同じ：警察行動直後、
+      // 　犯人が実際に動く前）。
+      if (currentRound >= maxRounds) {
+        setState(() {
+          currentPhase = GamePhase.gameOver;
+          gameResultMessage = '🚨 11ラウンド逃走達成！犯人プレイヤーの勝利です！';
+        });
+        return;
+      }
+
+      List<List<int>> validMoves = CriminalAi.getValidMoves(
+        traceGrid,
+        boardSize,
+        carRow,
+        carCol,
+      );
+      if (validMoves.isEmpty) {
+        setState(() {
+          currentPhase = GamePhase.gameOver;
+          gameResultMessage = '🚔 包囲完了！犯人は移動できなくなり、警察プレイヤーの勝利です！';
+        });
+        return;
+      }
+
+      setState(() {
+        _phaseAfterHandoff = GamePhase.playing;
+        _pendingHandoffPhase = GamePhase.handoffToCriminal;
+      });
+      return;
+    }
+
+    _advanceTurnAICar();
   }
 
   // 犯人AI（警察役=人間の時に使用）の移動 & ラウンド進行
@@ -468,6 +671,17 @@ class _GamePageState extends State<GamePage> {
       carCol = c;
       traceGrid[r][c] = currentRound + 1;
       currentRound++;
+    });
+
+    if (isTwoPlayerMode == true) {
+      setState(() {
+        _phaseAfterHandoff = GamePhase.playing;
+        _pendingHandoffPhase = GamePhase.handoffToPolice;
+      });
+      return;
+    }
+
+    setState(() {
       _pushLog('あなたはビル($r, $c)へ移動しました。');
       _pushLog('【第$currentRoundラウンド】警察が行動します…');
     });
@@ -922,104 +1136,131 @@ class _GamePageState extends State<GamePage> {
       );
     }
 
+    // ローカル2人対戦：ターン交代の受け渡し画面。
+    // 画面全体をHandoffViewに完全に差し替え、盤面・ログを含む前の画面が
+    // 一切表示されないようにする（非公開情報の漏洩防止）。
+    // 🔄リセットボタンは、警察→犯人の受け渡し中は非表示、
+    // 犯人→警察の受け渡し中は表示（確認ダイアログ付き）。
+    if (currentPhase == GamePhase.handoffToCriminal ||
+        currentPhase == GamePhase.handoffToPolice) {
+      return HandoffView(
+        phase: currentPhase,
+        onContinue: _confirmHandoff,
+        onReset: currentPhase == GamePhase.handoffToPolice
+            ? _startNewGame
+            : null,
+      );
+    }
+
     // 左側ログパネル・右側コントロール欄＋盤面、全体の高さを揃えるための合計値
     const double mainAreaHeight = controlAreaHeight + 12 + boardPixelSize;
+    final theme = AppTheme.boardGame();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          playerRole == PlayerRole.police
-              ? 'City Chase（警察役）'
-              : playerRole == PlayerRole.criminal
-              ? 'City Chase（犯人役）'
-              : 'City Chase',
-        ),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _startNewGame,
-            tooltip: 'リセット（役割選択に戻る）',
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // 画面上部：ステータスヘッダー／結果バナー切り替え領域（高さ固定）
-            Container(
-              width: double.infinity,
-              height: headerAreaHeight,
-              color: currentPhase == GamePhase.gameOver
-                  ? Colors.amber[100]
-                  : Colors.indigo[50],
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              child: Center(
-                child: currentPhase == GamePhase.gameOver
-                    ? _buildResultBanner()
-                    : _buildStatusHeader(),
-              ),
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: theme.scaffoldBackground,
+          appBar: AppBar(
+            title: Text(
+              playerRole == PlayerRole.police
+                  ? 'City Chase（警察役）'
+                  : playerRole == PlayerRole.criminal
+                  ? 'City Chase（犯人役）'
+                  : 'City Chase',
             ),
-
-            const SizedBox(height: 12),
-
-            // メインエリア：左＝ログパネル／右＝操作コントロール欄＋盤面（PCデスクトップ向け横並び固定レイアウト）
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // 左：ログパネル
-                  LogPanel(
-                    logHistory: logHistory,
-                    width: logPanelWidth,
-                    height: mainAreaHeight,
+            backgroundColor: theme.appBarBackground,
+            foregroundColor: theme.appBarForeground,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _startNewGame,
+                tooltip: 'リセット（役割選択に戻る）',
+              ),
+            ],
+          ),
+          body: SingleChildScrollView(
+            child: Column(
+              children: [
+                // 画面上部：ステータスヘッダー／結果バナー切り替え領域（高さ固定）
+                Container(
+                  width: double.infinity,
+                  height: headerAreaHeight,
+                  color: currentPhase == GamePhase.gameOver
+                      ? theme.pendingSearchColor.withOpacity(0.25)
+                      : theme.buildingHighlight.withOpacity(0.4),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 16,
                   ),
-                  const SizedBox(width: 16),
-                  // 右：操作コントロール欄（固定高さ）＋盤面（固定位置）
-                  Column(
+                  child: Center(
+                    child: currentPhase == GamePhase.gameOver
+                        ? _buildResultBanner()
+                        : _buildStatusHeader(),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // メインエリア：左＝ログパネル／右＝操作コントロール欄＋盤面（PCデスクトップ向け横並び固定レイアウト）
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SizedBox(
-                        width: boardPixelSize,
-                        height: controlAreaHeight,
-                        child: _buildControlArea(),
+                      // 左：ログパネル
+                      LogPanel(
+                        logHistory: logHistory,
+                        width: logPanelWidth,
+                        height: mainAreaHeight,
                       ),
-                      const SizedBox(height: 12),
-                      BoardWidget(
-                        boardPixelSize: boardPixelSize,
-                        heliMarkerSize: heliMarkerSize,
-                        boardSize: boardSize,
-                        currentPhase: currentPhase,
-                        playerRole: playerRole,
-                        carRow: carRow,
-                        carCol: carCol,
-                        traceGrid: traceGrid,
-                        revealedTraces: revealedTraces,
-                        lastSearchedByHeli: lastSearchedByHeli,
-                        searchingRow: searchingRow,
-                        searchingCol: searchingCol,
-                        helicopters: helicopters,
-                        currentHeliIndex: currentHeliIndex,
-                        isPoliceTurnRunning: isPoliceTurnRunning,
-                        pendingRow: pendingRow,
-                        pendingCol: pendingCol,
-                        pendingIsSearch: pendingIsSearch,
-                        getTraceColor: _getTraceColor,
-                        onBuildingTap: _onBuildingTap,
-                        onIntersectionTap: _onIntersectionTap,
+                      const SizedBox(width: 16),
+                      // 右：操作コントロール欄（固定高さ）＋盤面（固定位置）
+                      Column(
+                        children: [
+                          SizedBox(
+                            width: boardPixelSize,
+                            height: controlAreaHeight,
+                            child: _buildControlArea(),
+                          ),
+                          const SizedBox(height: 12),
+                          BoardWidget(
+                            boardPixelSize: boardPixelSize,
+                            heliMarkerSize: heliMarkerSize,
+                            boardSize: boardSize,
+                            currentPhase: currentPhase,
+                            playerRole: playerRole,
+                            carRow: carRow,
+                            carCol: carCol,
+                            traceGrid: traceGrid,
+                            revealedTraces: revealedTraces,
+                            lastSearchedByHeli: lastSearchedByHeli,
+                            searchingRow: searchingRow,
+                            searchingCol: searchingCol,
+                            helicopters: helicopters,
+                            currentHeliIndex: currentHeliIndex,
+                            isPoliceTurnRunning: isPoliceTurnRunning,
+                            pendingRow: pendingRow,
+                            pendingCol: pendingCol,
+                            pendingIsSearch: pendingIsSearch,
+                            getTraceColor: _getTraceColor,
+                            onBuildingTap: _onBuildingTap,
+                            onIntersectionTap: _onIntersectionTap,
+                            theme: theme,
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
-            ),
+                ),
 
-            const SizedBox(height: 16),
-          ],
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
         ),
-      ),
+        if (_pendingHandoffPhase != null) _buildHandoffConfirmOverlay(),
+      ],
     );
   }
 }

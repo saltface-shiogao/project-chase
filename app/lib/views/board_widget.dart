@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../ai/criminal_ai.dart';
+import '../models/app_theme.dart';
 import '../models/game_phase.dart';
 import '../models/helicopter.dart';
 import '../models/player_role.dart';
@@ -10,8 +11,9 @@ import '../models/player_role.dart';
 /// ヘリの移動範囲を視覚的に示す。ゲームロジックには影響しない（見た目のみ）。
 class _RoadNetworkPainter extends CustomPainter {
   final double boardPixelSize;
+  final Color lineColor;
 
-  _RoadNetworkPainter({required this.boardPixelSize});
+  _RoadNetworkPainter({required this.boardPixelSize, required this.lineColor});
 
   Offset _centerOf(int i, int j) {
     final double cx = (j + 1) * (boardPixelSize / 5);
@@ -22,11 +24,11 @@ class _RoadNetworkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final linePaint = Paint()
-      ..color = Colors.blueGrey[300]!.withOpacity(0.9)
+      ..color = lineColor.withOpacity(0.9)
       ..strokeWidth = 5
       ..strokeCap = StrokeCap.round;
 
-    final nodePaint = Paint()..color = Colors.blueGrey[300]!.withOpacity(0.9);
+    final nodePaint = Paint()..color = lineColor.withOpacity(0.9);
 
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 4; j++) {
@@ -44,7 +46,8 @@ class _RoadNetworkPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _RoadNetworkPainter oldDelegate) {
-    return oldDelegate.boardPixelSize != boardPixelSize;
+    return oldDelegate.boardPixelSize != boardPixelSize ||
+        oldDelegate.lineColor != lineColor;
   }
 }
 
@@ -83,6 +86,10 @@ class BoardWidget extends StatelessWidget {
   final Color Function(int roundNumber) getTraceColor;
   final void Function(int r, int c) onBuildingTap;
   final void Function(int i, int j) onIntersectionTap;
+  // アプリ全体のデザインテーマ。省略時は「ボードゲーム風」テーマを使う。
+  // 将来、設定画面からの切り替えに対応する際は、呼び出し側からここへ
+  // 選択中のテーマを渡すだけでよい（BoardWidget内のロジックは変更不要）。
+  final AppTheme theme;
 
   const BoardWidget({
     super.key,
@@ -107,6 +114,25 @@ class BoardWidget extends StatelessWidget {
     required this.getTraceColor,
     required this.onBuildingTap,
     required this.onIntersectionTap,
+    this.theme = const AppTheme(
+      name: 'ボードゲーム風',
+      appBarBackground: Color(0xFF2B3A55),
+      appBarForeground: Color(0xFFE8DCC3),
+      scaffoldBackground: Color(0xFFE8DCC3),
+      boardBackground: Color(0xFFE8DCC3),
+      gridLine: Color(0xFF2B3A55),
+      buildingColor: Color(0xFF8A7A64),
+      buildingHighlight: Color(0xFFA9998A),
+      buildingShadow: Color(0xFF5C4F3F),
+      searchedBuildingColor: Color(0xFFBEB29B),
+      searchableZoneColor: Color(0xFFB5533C),
+      pendingSearchColor: Color(0xFFC9A227),
+      moveCandidateColor: Color(0xFF6B7A4F),
+      deadEndWarningColor: Color(0xFFB5533C),
+      carColor: Color(0xFFC9A227),
+      traceAccentColor: Color(0xFFC9A227),
+      inkColor: Color(0xFF1F1B16),
+    ),
   });
 
   @override
@@ -128,9 +154,9 @@ class BoardWidget extends StatelessWidget {
         width: boardPixelSize,
         height: boardPixelSize,
         decoration: BoxDecoration(
-          color: Colors.grey[300],
+          color: theme.boardBackground,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey[600]!, width: 2),
+          border: Border.all(color: theme.gridLine, width: 2),
         ),
         child: Stack(
           children: [
@@ -205,17 +231,32 @@ class BoardWidget extends StatelessWidget {
                               carCol,
                             ).any((mv) => mv[0] == r && mv[1] == c);
 
+                        // 包囲事前警告（表示のみ・ルール変更なし）：
+                        // この候補へ移動すると、次に動ける隣接マスが0件になる
+                        // （＝次のターンで包囲状態が確定する）場合に警告を出す。
+                        // 1人プレイ・2人対戦を問わず、犯人役=人間のときは常に有効。
+                        bool isDeadEndMoveCandidate =
+                            isMoveCandidate &&
+                            CriminalAi.getValidMoves(
+                              traceGrid,
+                              boardSize,
+                              r,
+                              c,
+                            ).isEmpty;
+
                         Color cellColor;
                         if (showCar) {
-                          cellColor = Colors.amber[300]!;
+                          cellColor = theme.carColor;
                         } else if (isPendingSearch) {
-                          cellColor = Colors.orange[300]!;
+                          cellColor = theme.pendingSearchColor;
                         } else if (isSearchableArea) {
-                          cellColor = Colors.blue[200]!;
+                          cellColor = theme.searchableZoneColor;
+                        } else if (isDeadEndMoveCandidate) {
+                          cellColor = theme.deadEndWarningColor;
                         } else if (isMoveCandidate) {
-                          cellColor = Colors.green[300]!;
+                          cellColor = theme.moveCandidateColor;
                         } else {
-                          cellColor = Colors.blueGrey[800]!;
+                          cellColor = theme.buildingColor;
                         }
 
                         return Expanded(
@@ -228,30 +269,36 @@ class BoardWidget extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(6),
                                 border: isPendingSearch
                                     ? Border.all(
-                                        color: Colors.deepOrange,
+                                        color: theme.pendingSearchColor,
                                         width: 3,
                                       )
                                     : (isSearchableArea || isMoveCandidate)
                                     ? Border.all(
-                                        color: isMoveCandidate
-                                            ? Colors.green
-                                            : Colors.blue,
-                                        width: 2,
+                                        color: isDeadEndMoveCandidate
+                                            ? theme.deadEndWarningColor
+                                            : isMoveCandidate
+                                            ? theme.moveCandidateColor
+                                            : theme.searchableZoneColor,
+                                        width: isDeadEndMoveCandidate ? 3 : 2,
                                       )
-                                    : null,
+                                    : Border.all(
+                                        color: theme.buildingHighlight,
+                                        width: 1,
+                                      ),
                               ),
                               child: Stack(
                                 children: [
                                   Center(
                                     child: showCar
-                                        ? const Icon(
+                                        ? Icon(
                                             Icons.directions_car,
-                                            color: Colors.black,
+                                            color: theme.inkColor,
                                             size: 36,
                                           )
-                                        : const Icon(
+                                        : Icon(
                                             Icons.location_city,
-                                            color: Colors.white24,
+                                            color: theme.buildingShadow
+                                                .withOpacity(0.5),
                                             size: 30,
                                           ),
                                   ),
@@ -309,6 +356,9 @@ class BoardWidget extends StatelessWidget {
                                       ),
                                     ),
                                   // 捜索済みマーカー：ヘリごとの直近の捜索場所（最大3箇所同時表示）
+                                  // ※ヘリの「行動済み」バッジ（交差点側）と紛らわしいとの
+                                  // 　フィードバックを受け、こちらは警察系の色（searchableZoneColor）
+                                  // 　の丸に統一し、色で見分けられるようにしている。
                                   if (showSearchedMarker && !showCar)
                                     Positioned(
                                       bottom: 3,
@@ -316,13 +366,33 @@ class BoardWidget extends StatelessWidget {
                                       child: Container(
                                         padding: const EdgeInsets.all(2),
                                         decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.55),
+                                          color: theme.searchableZoneColor
+                                              .withOpacity(0.9),
                                           shape: BoxShape.circle,
                                         ),
                                         child: const Icon(
                                           Icons.check,
-                                          color: Colors.white70,
+                                          color: Colors.white,
                                           size: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  // 包囲事前警告アイコン：この候補へ移動すると
+                                  // 次に動けなくなる（表示のみ・ルール変更なし）
+                                  if (isDeadEndMoveCandidate && !showCar)
+                                    Positioned(
+                                      bottom: 3,
+                                      right: 3,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: BoxDecoration(
+                                          color: theme.deadEndWarningColor,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.warning_amber_rounded,
+                                          color: Colors.white,
+                                          size: 14,
                                         ),
                                       ),
                                     ),
@@ -372,7 +442,10 @@ class BoardWidget extends StatelessWidget {
             Positioned.fill(
               child: IgnorePointer(
                 child: CustomPaint(
-                  painter: _RoadNetworkPainter(boardPixelSize: boardPixelSize),
+                  painter: _RoadNetworkPainter(
+                    boardPixelSize: boardPixelSize,
+                    lineColor: theme.gridLine,
+                  ),
                 ),
               ),
             ),
@@ -488,18 +561,20 @@ class BoardWidget extends StatelessWidget {
                           ),
                         ),
                         // 行動済みバッジ：警察役=人間がどのヘリを操作済みか一目で分かるように表示
+                        // ※ビル側の「捜索済み」マーカー（赤茶の丸＋チェック）と紛らわしいとの
+                        // 　フィードバックを受け、こちらは紺色の丸＋二重チェックに変更している。
                         if (isActed)
                           Positioned(
                             bottom: -2,
                             right: -2,
                             child: Container(
                               padding: const EdgeInsets.all(2),
-                              decoration: const BoxDecoration(
-                                color: Colors.black87,
+                              decoration: BoxDecoration(
+                                color: theme.gridLine,
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
-                                Icons.check,
+                                Icons.done_all,
                                 color: Colors.white,
                                 size: 11,
                               ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/app_theme.dart';
 import '../models/player_role.dart';
 
 /// 役割選択画面（警察役 / 犯人役）
@@ -29,12 +30,14 @@ class RoleSelectView extends StatelessWidget {
     final String criminalLabel = isTwoPlayerMode
         ? '犯人役でプレイ（あなたが犯人、もう一人が警察）'
         : '犯人役でプレイ（AIが警察）';
+    final theme = AppTheme.boardGame();
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackground,
       appBar: AppBar(
         title: const Text('シティチェイス'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
+        backgroundColor: theme.appBarBackground,
+        foregroundColor: theme.appBarForeground,
       ),
       body: Center(
         child: Padding(
@@ -42,9 +45,13 @@ class RoleSelectView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
+              Text(
                 '役割を選んでください',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: theme.inkColor,
+                ),
               ),
               const SizedBox(height: 32),
               ElevatedButton.icon(
@@ -52,6 +59,8 @@ class RoleSelectView extends StatelessWidget {
                 icon: const Icon(Icons.local_police),
                 label: Text(policeLabel),
                 style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.searchableZoneColor,
+                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 18,
@@ -65,6 +74,8 @@ class RoleSelectView extends StatelessWidget {
                 icon: const Icon(Icons.directions_car),
                 label: Text(criminalLabel),
                 style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.moveCandidateColor,
+                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 18,

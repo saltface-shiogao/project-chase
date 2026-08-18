@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/app_theme.dart';
+
 /// 遊び方選択画面（1人プレイ / ローカル2人対戦）
 ///
 /// 役割選択画面（RoleSelectView）の「前」に表示する新規画面。
@@ -20,11 +22,13 @@ class ModeSelectView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = AppTheme.boardGame();
     return Scaffold(
+      backgroundColor: theme.scaffoldBackground,
       appBar: AppBar(
         title: const Text('シティチェイス'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
+        backgroundColor: theme.appBarBackground,
+        foregroundColor: theme.appBarForeground,
       ),
       body: Center(
         child: Padding(
@@ -32,9 +36,13 @@ class ModeSelectView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
+              Text(
                 '遊び方を選んでください',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: theme.inkColor,
+                ),
               ),
               const SizedBox(height: 32),
               ElevatedButton.icon(
@@ -42,6 +50,8 @@ class ModeSelectView extends StatelessWidget {
                 icon: const Icon(Icons.smart_toy),
                 label: const Text('1人で遊ぶ（AI対戦）'),
                 style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.appBarBackground,
+                  foregroundColor: theme.appBarForeground,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 18,
@@ -55,6 +65,8 @@ class ModeSelectView extends StatelessWidget {
                 icon: const Icon(Icons.people_alt),
                 label: const Text('2人で対戦する（同じ端末で交互プレイ）'),
                 style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.moveCandidateColor,
+                  foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 18,
