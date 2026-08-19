@@ -1,4 +1,4 @@
-import 'package0:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:my_first_app/models/player_role.dart';
 import 'package:my_first_app/models/game_phase.dart';
 import 'package:my_first_app/models/helicopter.dart';
@@ -27,10 +27,12 @@ void main() {
 
   test('PoliceAiAction model test', () {
     final heli = Helicopter(1, 1, 1);
-    // search は位置引数 (heli.id, heli.row, heli.col) を受け取る形式に修正
-    final action = PoliceAiAction.search(heli.id, heli.row, heli.col);
+    // PoliceAiAction.search は (targetRow, targetCol) の2引数のみを受け取る
+    // （helicopterId というフィールドは存在しないため、ここでは検証しない）
+    final action = PoliceAiAction.search(heli.row, heli.col);
     expect(action.type, PoliceActionType.search);
-    expect(action.helicopterId, heli.id);
+    expect(action.targetRow, heli.row);
+    expect(action.targetCol, heli.col);
   });
 
   test('CriminalAi test', () {

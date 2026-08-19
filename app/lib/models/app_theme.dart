@@ -30,6 +30,15 @@ class AppTheme {
   final Color traceAccentColor; // 痕跡・警告のアクセント色（金具・ニス）
   final Color inkColor; // 文字・アイコンの基本色
 
+  // ---- 盤面デザイン v5（新影風ビル・2車線道路・外周トリム） ----
+  // 省略可能。指定しない場合は下記デフォルト値（写真参考のモックアップで
+  // 使った配色）が使われる。
+  final Color buildingShadowReliefTop; // 新影風ビル：屋上面
+  final Color buildingShadowReliefSide; // 新影風ビル：側面（下部バンド）
+  final Color roadAsphaltColor; // 2車線道路のアスファルト色
+  final Color boardTrimGrassColor; // 盤面外周トリム：芝生
+  final Color boardTrimCurbColor; // 盤面外周トリム：縁石
+
   const AppTheme({
     required this.name,
     required this.appBarBackground,
@@ -48,6 +57,11 @@ class AppTheme {
     required this.carColor,
     required this.traceAccentColor,
     required this.inkColor,
+    this.buildingShadowReliefTop = const Color(0xFF33507F),
+    this.buildingShadowReliefSide = const Color(0xFF152340),
+    this.roadAsphaltColor = const Color(0xFF3E4A57),
+    this.boardTrimGrassColor = const Color(0xFF5F7A4C),
+    this.boardTrimCurbColor = const Color(0xFFC9BFA3),
   });
 
   /// 「ボードゲーム風（原作に近い）」テーマ。
@@ -71,6 +85,11 @@ class AppTheme {
       carColor: Color(0xFFC9A227), // マスタードゴールド
       traceAccentColor: Color(0xFFC9A227),
       inkColor: Color(0xFF1F1B16), // ほぼ黒の焦げ茶
+      buildingShadowReliefTop: Color(0xFF33507F), // 新影風：屋上（明るい紺）
+      buildingShadowReliefSide: Color(0xFF152340), // 新影風：側面（濃い紺）
+      roadAsphaltColor: Color(0xFF3E4A57), // 2車線道路のアスファルト
+      boardTrimGrassColor: Color(0xFF5F7A4C), // 外周トリム：芝生
+      boardTrimCurbColor: Color(0xFFC9BFA3), // 外周トリム：縁石
     );
   }
 }

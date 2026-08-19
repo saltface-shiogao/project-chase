@@ -3,10 +3,10 @@ import 'package:my_first_app/main.dart';
 
 void main() {
   testWidgets('App launch test', (WidgetTester tester) async {
-    // MyApp を ProjectChaseApp に変更
-    await tester.pumpWidget(const ProjectChaseApp());
+    // main.dart の実際のクラス名は CityChaseApp
+    await tester.pumpWidget(const CityChaseApp());
 
     // 描画が正常に行われるか確認
-    expect(find.byType(ProjectChaseApp), findsOneWidget);
+    expect(find.byType(CityChaseApp), findsOneWidget);
   });
 }
