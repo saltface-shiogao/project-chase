@@ -183,6 +183,9 @@ class _RoadNetworkPainter extends CustomPainter {
 }
 
 /// ビルスタイル「屋根パターン風」のパネル継ぎ目を描く簡易ペインター。
+/// ビルスタイル「屋根パターン風」の簡易パネル継ぎ目を描くペインター。
+/// ※5×5の小さいマスでは細部が視認しづらいとのフィードバックを受け、
+/// 　あえて最低限（十字の継ぎ目のみ）に留めている。作り込みは新影風の方に寄せた。
 class _RoofPatternPainter extends CustomPainter {
   final Color lineColor;
   _RoofPatternPainter({required this.lineColor});
@@ -207,6 +210,84 @@ class _RoofPatternPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RoofPatternPainter oldDelegate) =>
       oldDelegate.lineColor != lineColor;
+}
+
+/// ビルスタイル「新影風」の窓マリオン（縦の窓枠）を描く軽量ペインター。
+/// 均等な縦線を数本描くだけの単純な処理で、25マス分描画しても軽い。
+class _WindowMullionPainter extends CustomPainter {
+  final Color lineColor;
+  _WindowMullionPainter({required this.lineColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 0.8;
+    const columns = 3;
+    for (int k = 1; k < columns; k++) {
+      final x = size.width * (k / columns);
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WindowMullionPainter oldDelegate) =>
+      oldDelegate.lineColor != lineColor;
+}
+
+/// 道路上のちょっとした街装飾（木・車・人）。
+/// ヘリが止まる交差点（4×4グリッド）とは重ならない位置――具体的には、
+/// 「交差点と盤の端の間」「交差点と交差点の間」の区間の中央――だけに配置する。
+/// 位置は boardPixelSize に対する比率(dxFactor, dyFactor)で持っており、
+/// 盤面サイズが変わっても崩れない。
+class _RoadDecorations extends StatelessWidget {
+  final double boardPixelSize;
+  const _RoadDecorations({required this.boardPixelSize});
+
+  // 交差点center = (k+1)*(boardPixelSize/5) と同じ考え方で、
+  // 区間の中間点を比率(1/10刻み)で表現している。
+  static const List<_RoadDecoItem> _items = [
+    _RoadDecoItem(dxFactor: 1 / 5, dyFactor: 1 / 10, emoji: '🌳'), // 上端スタブ(j=0)
+    _RoadDecoItem(dxFactor: 4 / 5, dyFactor: 1 / 10, emoji: '🚗'), // 上端スタブ(j=3)
+    _RoadDecoItem(dxFactor: 2 / 5, dyFactor: 9 / 10, emoji: '🚶'), // 下端スタブ(j=1)
+    _RoadDecoItem(dxFactor: 1 / 10, dyFactor: 3 / 5, emoji: '🌳'), // 左端スタブ(i=2)
+    _RoadDecoItem(dxFactor: 9 / 10, dyFactor: 2 / 5, emoji: '🚗'), // 右端スタブ(i=1)
+    _RoadDecoItem(dxFactor: 1 / 2, dyFactor: 1 / 5, emoji: '🚶'), // 内側区間の中央
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final double size = (boardPixelSize * 0.032).clamp(9.0, 14.0);
+    return Stack(
+      children: _items.map((item) {
+        final double x = item.dxFactor * boardPixelSize;
+        final double y = item.dyFactor * boardPixelSize;
+        return Positioned(
+          left: x - size / 2,
+          top: y - size / 2,
+          width: size,
+          height: size,
+          child: Center(
+            child: Text(
+              item.emoji,
+              style: TextStyle(fontSize: size, height: 1),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _RoadDecoItem {
+  final double dxFactor;
+  final double dyFactor;
+  final String emoji;
+  const _RoadDecoItem({
+    required this.dxFactor,
+    required this.dyFactor,
+    required this.emoji,
+  });
 }
 
 /// ゲーム盤面（5×5のビルと4×4の交差点）の描画とタップ処理
@@ -376,6 +457,14 @@ class BoardWidget extends StatelessWidget {
                       bool isPendingSearch =
                           pendingIsSearch && pendingRow == r && pendingCol == c;
 
+                      // 移動候補（未確定）：犯人役=人間がタップしたが、まだ「確定」ボタンを
+                      // 押していないビル。警察側の isPendingSearch と対になる仕組み。
+                      bool isPendingCriminalMove =
+                          playerRole == PlayerRole.criminal &&
+                          !pendingIsSearch &&
+                          pendingRow == r &&
+                          pendingCol == c;
+
                       // 選択中ヘリの捜索可能範囲（周囲4マス）。モード切替は廃止したため、
                       // ヘリが選択されていて未行動であれば常にガイドとして表示する。
                       bool isSearchableArea =
@@ -415,6 +504,8 @@ class BoardWidget extends StatelessWidget {
                         cellColor = theme.carColor;
                       } else if (isPendingSearch) {
                         cellColor = theme.pendingSearchColor;
+                      } else if (isPendingCriminalMove) {
+                        cellColor = Colors.deepOrange;
                       } else if (isSearchableArea) {
                         cellColor = theme.searchableZoneColor;
                       } else if (isDeadEndMoveCandidate) {
@@ -429,12 +520,13 @@ class BoardWidget extends StatelessWidget {
                             : theme.buildingColor;
                       }
 
-                      // 特別な状態（捜索候補／捜索可能ゾーン／移動候補／包囲警告）の
-                      // ときは、その状態色をはっきり見せたいので枠を出す。
-                      // 通常時は枠を出さず、グラデーションのみで立体感を出すことで
-                      // マス同士の「継ぎ目」が目立たないようにしている。
+                      // 特別な状態（捜索候補／移動候補（確定待ち）／捜索可能ゾーン／
+                      // 移動候補／包囲警告）のときは、その状態色をはっきり見せたいので
+                      // 枠を出す。通常時は枠を出さず、グラデーションのみで立体感を出す
+                      // ことで、マス同士の「継ぎ目」が目立たないようにしている。
                       final bool isSpecialState =
                           isPendingSearch ||
+                          isPendingCriminalMove ||
                           isSearchableArea ||
                           isMoveCandidate;
                       final Color topShade = Color.lerp(
@@ -464,6 +556,11 @@ class BoardWidget extends StatelessWidget {
                                       color: theme.pendingSearchColor,
                                       width: 3,
                                     )
+                                  : isPendingCriminalMove
+                                  ? Border.all(
+                                      color: Colors.deepOrange,
+                                      width: 3,
+                                    )
                                   : isSpecialState
                                   ? Border.all(
                                       color: isDeadEndMoveCandidate
@@ -477,8 +574,9 @@ class BoardWidget extends StatelessWidget {
                             ),
                             child: Stack(
                               children: [
-                                // 新影（立体感）風：屋上のハイライト帯＋下部の
-                                // 濃色バンドで高さを表現する（マス内に収める版）。
+                                // 新影（立体感）風：屋上のハイライト帯＋窓のマリオン風
+                                // テクスチャ＋下部の濃色バンドで高さを表現する
+                                // （マス内に収める版）。
                                 if (buildingStyle ==
                                     BuildingStyle.shadowRelief) ...[
                                   Positioned(
@@ -494,6 +592,27 @@ class BoardWidget extends StatelessWidget {
                                               const BorderRadius.vertical(
                                                 top: Radius.circular(5),
                                               ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: 0,
+                                    right: 0,
+                                    top: 0,
+                                    bottom: 0,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: 6,
+                                        bottom: 8,
+                                        left: 3,
+                                        right: 3,
+                                      ),
+                                      child: CustomPaint(
+                                        painter: _WindowMullionPainter(
+                                          lineColor: Colors.white.withOpacity(
+                                            0.14,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -527,7 +646,7 @@ class BoardWidget extends StatelessWidget {
                                       child: CustomPaint(
                                         painter: _RoofPatternPainter(
                                           lineColor: theme.buildingShadow
-                                              .withOpacity(0.25),
+                                              .withOpacity(0.4),
                                         ),
                                       ),
                                     ),
@@ -720,6 +839,18 @@ class BoardWidget extends StatelessWidget {
             ),
           ),
 
+          // 2.5 道路上のちょっとした街装飾（木・車・人）。
+          // ヘリが実際に止まる交差点（4×4）の位置は避け、区間の途中
+          // （交差点と交差点の間、または交差点と盤の端の間）だけに、
+          // 控えめな数（6箇所）だけ配置している。当たり判定・ゲームロジックには
+          // 一切関与しない、純粋な見た目だけの装飾レイヤー。
+          if (roadStyle == RoadStyle.twoLane)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _RoadDecorations(boardPixelSize: boardPixelSize),
+              ),
+            ),
+
           // 3. 交差点(4x4)の描画（ヘリ移動・配置タップ用）
           ...List.generate(4, (i) {
             return List.generate(4, (j) {
@@ -791,7 +922,7 @@ class BoardWidget extends StatelessWidget {
                           color: heliIndex != -1
                               ? heliColors[(helicopters[heliIndex].id - 1) %
                                         heliColors.length]
-                                    .withOpacity(isActed ? 0.4 : 1.0)
+                                    .withOpacity(isActed ? 0.6 : 1.0)
                               : emptyFillColor,
                           shape: BoxShape.circle,
                           border: Border.all(
@@ -832,7 +963,7 @@ class BoardWidget extends StatelessWidget {
                       ),
                       // 行動済みバッジ：警察役=人間がどのヘリを操作済みか一目で分かるように表示
                       // ※ビル側の「捜索済み」マーカー（赤茶の丸＋チェック）と紛らわしいとの
-                      // 　フィードバックを受け、こちらは紺色の丸＋二重チェックに変更している。
+                      // 　フィードバックを受け、こちらはマスタードゴールドの丸＋二重チェックに変更している。
                       if (isActed)
                         Positioned(
                           bottom: -2,
@@ -840,12 +971,16 @@ class BoardWidget extends StatelessWidget {
                           child: Container(
                             padding: const EdgeInsets.all(2),
                             decoration: BoxDecoration(
-                              color: theme.gridLine,
+                              color: theme.pendingSearchColor,
                               shape: BoxShape.circle,
+                              border: Border.all(
+                                color: theme.inkColor,
+                                width: 1,
+                              ),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.done_all,
-                              color: Colors.white,
+                              color: theme.inkColor,
                               size: 11,
                             ),
                           ),

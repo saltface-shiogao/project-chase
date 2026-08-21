@@ -44,7 +44,12 @@ class _GamePageState extends State<GamePage> {
   // 盤面の左上に置く「操作コントロール／確認」領域の高さ
   // （警察役の「現在操作中のヘリ」表示・確定/キャンセルボタン、犯人役へのヒント文言などが入る）。
   // フェーズによって表示内容が有る/無いが変わっても、高さは固定する。
+  // スタイル切り替えチップ行のおおよその高さ（盤面の下に追加した分）。
+  // ログパネルとの高さ揃え（mainAreaHeight）に反映する。
   static const double controlAreaHeight = 96;
+  // スタイル切り替えチップ行のおおよその高さ（盤面の下に追加した分）。
+  // ログパネルとの高さ揃え（mainAreaHeight）に反映する。
+  static const double styleToggleAreaHeight = 44;
   // 左側ログパネルの幅（折り返し表示でも読みやすいよう少し広めに設定。
   // この値はゲーム中・ゲーム終了時を通じて変わらない固定値）
   static const double logPanelWidth = 260;
@@ -119,6 +124,12 @@ class _GamePageState extends State<GamePage> {
   List<String> logHistory = [];
   // 勝利メッセージ
   String gameResultMessage = '';
+
+  // 盤面デザインの見た目スタイル（設定画面はまだ無いため、ひとまず
+  // ここに状態を持たせている。デフォルトはBoardWidget側と同じ
+  // 新影風・2車線道路）。
+  BuildingStyle _buildingStyle = BuildingStyle.shadowRelief;
+  RoadStyle _roadStyle = RoadStyle.twoLane;
 
   @override
   void initState() {
@@ -644,7 +655,11 @@ class _GamePageState extends State<GamePage> {
 
   // ============ 犯人役=人間 の操作 & 警察AI ============
 
-  void _moveCarHuman(int r, int c) {
+  // 犯人役=人間の移動先タップ時の判定（隣接チェック・痕跡チェック）のみを行う。
+  // 警察側と同じ確定フローに揃えるため、ここでは実際の移動は行わず、
+  // 妥当な移動先であれば「候補」として保持するだけに留める
+  // （実行は _confirmPendingAction → _executeCriminalMove で行う）。
+  void _validateAndStageCriminalMove(int r, int c) {
     if (currentPhase != GamePhase.playing || playerRole != PlayerRole.criminal)
       return;
     if (isPoliceTurnRunning) return;
@@ -666,6 +681,18 @@ class _GamePageState extends State<GamePage> {
       return;
     }
 
+    setState(() {
+      pendingRow = r;
+      pendingCol = c;
+      pendingIsSearch = false;
+    });
+  }
+
+  // 確定ボタンが押された後に実際に呼ばれる、犯人の移動本体。
+  // 判定（隣接・痕跡チェック）は _validateAndStageCriminalMove で
+  // 既に完了しているため、ここでは状態更新のみを行う
+  // （移動ロジック自体は元の _moveCarHuman から変更していない）。
+  void _executeCriminalMove(int r, int c) {
     setState(() {
       carRow = r;
       carCol = c;
@@ -825,8 +852,8 @@ class _GamePageState extends State<GamePage> {
   }
 
   // 盤面（BoardWidget）からのタップを受け取り、フェーズ・役割に応じて処理を振り分ける。
-  // 警察役=人間の場合、タップは即実行せず「候補」として保持し、確定ボタンで実行する
-  // （誤操作防止のための確認ステップ。犯人役=人間の移動は従来通り即時実行）。
+  // 警察役・犯人役どちらの場合も、タップは即実行せず「候補」として保持し、
+  // 確定ボタンで実行する（誤操作防止のための確認ステップ）。
   void _onBuildingTap(int r, int c) {
     if (currentPhase == GamePhase.setupCarHuman) {
       _selectCarInitialPositionHuman(r, c);
@@ -836,7 +863,7 @@ class _GamePageState extends State<GamePage> {
     if (currentPhase != GamePhase.playing) return;
 
     if (playerRole == PlayerRole.criminal) {
-      _moveCarHuman(r, c);
+      _validateAndStageCriminalMove(r, c);
       return;
     }
 
@@ -958,6 +985,11 @@ class _GamePageState extends State<GamePage> {
       pendingCol = -1;
       pendingIsSearch = false;
     });
+
+    if (playerRole == PlayerRole.criminal) {
+      _executeCriminalMove(r, c);
+      return;
+    }
 
     if (isSearch) {
       _searchBuilding(r, c);
@@ -1111,6 +1143,36 @@ class _GamePageState extends State<GamePage> {
     if (currentPhase == GamePhase.playing &&
         playerRole == PlayerRole.criminal &&
         !isPoliceTurnRunning) {
+      if (_hasPendingAction) {
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              '移動先 ($pendingRow, $pendingCol) を確定しますか？',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _confirmPendingAction,
+                  icon: const Icon(Icons.check),
+                  label: const Text('移動を確定'),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: _cancelPendingAction,
+                  icon: const Icon(Icons.close),
+                  label: const Text('キャンセル'),
+                ),
+              ],
+            ),
+          ],
+        );
+      }
+
       return const Center(
         child: Text(
           '緑色のビルをタップして移動してください。',
@@ -1122,6 +1184,78 @@ class _GamePageState extends State<GamePage> {
 
     // 該当する表示がないフェーズでも領域の高さは確保し、盤面位置がズレないようにする
     return const SizedBox.shrink();
+  }
+
+  // ============ 盤面デザインの見た目スタイル切り替え（表示専用・ロジックなし） ============
+  //
+  // ビル・道路の見た目は BoardWidget 側にすでに両対応が入っているため、
+  // ここでは「今どちらを選んでいるか」を保持し、ボタンで切り替えるだけでよい。
+  // ゲームロジック（判定・状態管理）には一切影響しない。
+
+  Widget _buildStyleToggleRow(AppTheme theme) {
+    return SizedBox(
+      width: boardPixelSize,
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          _styleToggleChip(
+            label: '① 屋根パターン風',
+            selected: _buildingStyle == BuildingStyle.roofPattern,
+            theme: theme,
+            onTap: () =>
+                setState(() => _buildingStyle = BuildingStyle.roofPattern),
+          ),
+          _styleToggleChip(
+            label: '② 新影風',
+            selected: _buildingStyle == BuildingStyle.shadowRelief,
+            theme: theme,
+            onTap: () =>
+                setState(() => _buildingStyle = BuildingStyle.shadowRelief),
+          ),
+          _styleToggleChip(
+            label: '道路：現行',
+            selected: _roadStyle == RoadStyle.thin,
+            theme: theme,
+            onTap: () => setState(() => _roadStyle = RoadStyle.thin),
+          ),
+          _styleToggleChip(
+            label: '道路：2車線',
+            selected: _roadStyle == RoadStyle.twoLane,
+            theme: theme,
+            onTap: () => setState(() => _roadStyle = RoadStyle.twoLane),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _styleToggleChip({
+    required String label,
+    required bool selected,
+    required AppTheme theme,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? theme.gridLine : theme.scaffoldBackground,
+          border: Border.all(color: theme.gridLine, width: 1.4),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: selected ? theme.appBarForeground : theme.inkColor,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1153,7 +1287,8 @@ class _GamePageState extends State<GamePage> {
     }
 
     // 左側ログパネル・右側コントロール欄＋盤面、全体の高さを揃えるための合計値
-    const double mainAreaHeight = controlAreaHeight + 12 + boardPixelSize;
+    const double mainAreaHeight =
+        controlAreaHeight + 12 + boardPixelSize + 10 + styleToggleAreaHeight;
     final theme = AppTheme.boardGame();
 
     return Stack(
@@ -1247,7 +1382,11 @@ class _GamePageState extends State<GamePage> {
                             onBuildingTap: _onBuildingTap,
                             onIntersectionTap: _onIntersectionTap,
                             theme: theme,
+                            buildingStyle: _buildingStyle,
+                            roadStyle: _roadStyle,
                           ),
+                          const SizedBox(height: 10),
+                          _buildStyleToggleRow(theme),
                         ],
                       ),
                     ],
