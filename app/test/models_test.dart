@@ -36,23 +36,19 @@ void main() {
   });
 
   test('CriminalAi test', () {
-    // getValidMoves と decideMove は位置引数で呼び出す形式に修正
     final grid = List.generate(5, (_) => List.generate(5, (_) => 0));
-    final moves = CriminalAi.getValidMoves(grid, 2, 2, []);
+    final moves = CriminalAi.getValidMoves(grid, 5, 2, 2);
     expect(moves.isNotEmpty, isTrue);
 
-    final move = CriminalAi.decideMove(grid, 2, 2, [
-      [0, 0],
-    ]);
+    final move = CriminalAi.decideMove(grid, 5, 2, 2);
     expect(move, isNotNull);
     expect(move?.length, 2);
   });
 
   test('PoliceAi test', () {
     final helis = [Helicopter(1, 0, 0)];
-    final grid = List.generate(5, (_) => List.generate(5, (_) => 0));
-    // decideAction も位置引数 (helis, grid, searchedBuildings) で呼び出し
-    final action = PoliceAi.decideAction(helis, grid, []);
+    final searchedGrid = List.generate(5, (_) => List.filled(5, false));
+    final action = PoliceAi.decideAction(helis.first, helis, searchedGrid);
     expect(action, isNotNull);
   });
 }

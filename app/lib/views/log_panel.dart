@@ -29,7 +29,9 @@ class LogPanel extends StatelessWidget {
     return Container(
       width: width ?? double.infinity,
       height: height ?? (maxEntries * _lineHeight + _verticalPadding),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      // 配置を決める余白は親レイアウトで管理する。ここで余白を足すと、
+      // 指定された幅・高さよりパネルが大きくなり、盤面との整列が崩れる。
+      margin: EdgeInsets.zero,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.grey[100],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/app_theme.dart';
+import '../models/ai_difficulty.dart';
 
 /// 遊び方選択画面（1人プレイ / ローカル2人対戦）
 ///
@@ -15,10 +16,17 @@ import '../models/app_theme.dart';
 ///（次のステップで対応）へ進む想定。
 enum PlayMode { singlePlayer, localTwoPlayer }
 
-class ModeSelectView extends StatelessWidget {
-  final void Function(PlayMode mode) onSelectMode;
+class ModeSelectView extends StatefulWidget {
+  final void Function(PlayMode mode, AiDifficulty difficulty) onSelectMode;
 
   const ModeSelectView({super.key, required this.onSelectMode});
+
+  @override
+  State<ModeSelectView> createState() => _ModeSelectViewState();
+}
+
+class _ModeSelectViewState extends State<ModeSelectView> {
+  AiDifficulty _difficulty = AiDifficulty.normal;
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +54,8 @@ class ModeSelectView extends StatelessWidget {
               ),
               const SizedBox(height: 32),
               ElevatedButton.icon(
-                onPressed: () => onSelectMode(PlayMode.singlePlayer),
+                onPressed: () =>
+                    widget.onSelectMode(PlayMode.singlePlayer, _difficulty),
                 icon: const Icon(Icons.smart_toy),
                 label: const Text('1人で遊ぶ（AI対戦）'),
                 style: ElevatedButton.styleFrom(
@@ -60,8 +69,31 @@ class ModeSelectView extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 20),
+              Text(
+                'AIの難易度',
+                style: TextStyle(
+                  color: theme.inkColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SegmentedButton<AiDifficulty>(
+                segments: AiDifficulty.values
+                    .map(
+                      (value) => ButtonSegment<AiDifficulty>(
+                        value: value,
+                        label: Text(value.label),
+                      ),
+                    )
+                    .toList(),
+                selected: {_difficulty},
+                onSelectionChanged: (values) =>
+                    setState(() => _difficulty = values.first),
+              ),
+              const SizedBox(height: 20),
               ElevatedButton.icon(
-                onPressed: () => onSelectMode(PlayMode.localTwoPlayer),
+                onPressed: () =>
+                    widget.onSelectMode(PlayMode.localTwoPlayer, _difficulty),
                 icon: const Icon(Icons.people_alt),
                 label: const Text('2人で対戦する（同じ端末で交互プレイ）'),
                 style: ElevatedButton.styleFrom(

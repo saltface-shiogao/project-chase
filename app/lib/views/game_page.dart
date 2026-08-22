@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../ai/criminal_ai.dart';
 import '../ai/police_ai.dart';
 import '../models/app_theme.dart';
+import '../models/ai_difficulty.dart';
 import '../models/game_phase.dart';
 import '../models/helicopter.dart';
 import '../models/player_role.dart';
@@ -43,6 +44,11 @@ class _GamePageState extends State<GamePage> {
   // 通常時（ターン数・フェーズ表示）とゲーム終了時（結果メッセージ＋再戦ボタン）の
   // どちらの内容が入っても、この高さは変えない＝盤面の位置がズレない。
   static const double headerAreaHeight = 148;
+  // ゲーム終了時の結果バナーは、メッセージ文言＋ボタン2つ分の高さが必要になるため、
+  // 通常のステータスヘッダーより広めの専用の高さを用意する
+  // （headerAreaHeightのままだと、環境によってはボタンがはみ出して押せなくなる
+  // 　不具合があったための対応）。
+  static const double gameOverHeaderAreaHeight = 200;
   // 盤面の左上に置く「操作コントロール／確認」領域の高さ
   // （警察役の「現在操作中のヘリ」表示・確定/キャンセルボタン、犯人役へのヒント文言などが入る）。
   // フェーズによって表示内容が有る/無いが変わっても、高さは固定する。
@@ -55,6 +61,13 @@ class _GamePageState extends State<GamePage> {
   // 左側ログパネルの幅（折り返し表示でも読みやすいよう少し広めに設定。
   // この値はゲーム中・ゲーム終了時を通じて変わらない固定値）
   static const double logPanelWidth = 260;
+  // デザイン切替・凡例を右側パネルに出すかどうかの分岐に使う定数。
+  // ※将来スマホの縦画面対応をする際は、この分岐をさらに増やす想定
+  // 　（今回は「十分広い時は右パネル／狭い時は今まで通り盤面の下」の
+  // 　2択のみ用意している）。
+  static const double sidePanelWidth = 220;
+  static const double _wideLayoutMinWidth =
+      32 + logPanelWidth + 16 + boardPixelSize + 16 + sidePanelWidth;
 
   // 役割・フェーズ
   PlayerRole? playerRole;
@@ -67,6 +80,7 @@ class _GamePageState extends State<GamePage> {
   // 既存のGamePhaseには新しい値を追加していない。currentPhase == roleSelect の間、
   // この変数の値だけでどちらの画面を出すかを切り替える。
   bool? isTwoPlayerMode;
+  AiDifficulty aiDifficulty = AiDifficulty.normal;
 
   // ローカル2人対戦用に追加。
   // HandoffView（受け渡し画面）の「続ける」ボタンを押した後に、
@@ -191,7 +205,8 @@ class _GamePageState extends State<GamePage> {
   // 1人プレイ：従来通りモードを記録するのみで、役割決定は _chooseRole に委ねる。
   // ローカル2人対戦：2人対戦は必ず警察側のヘリ配置から始まり、役割を選ぶ余地が
   // ないため、RoleSelectView自体を経由せず直接ヘリ配置フェーズへ進む。
-  void _choosePlayMode(PlayMode mode) {
+  void _choosePlayMode(PlayMode mode, AiDifficulty difficulty) {
+    aiDifficulty = difficulty;
     if (mode == PlayMode.localTwoPlayer) {
       setState(() {
         isTwoPlayerMode = true;
@@ -526,6 +541,7 @@ class _GamePageState extends State<GamePage> {
       boardSize,
       carRow,
       carCol,
+      difficulty: aiDifficulty,
     );
 
     if (nextMove == null) {
@@ -783,7 +799,13 @@ class _GamePageState extends State<GamePage> {
   // 「どこを捜索・移動するか」の判断自体は ai/police_ai.dart に委譲し、
   // ここでは判断結果（PoliceAiAction）に応じた状態更新（setState・ログ追加）のみを行う。
   Future<void> _aiDecideAndActHelicopter(Helicopter heli) async {
-    final action = PoliceAi.decideAction(heli, helicopters, searchedGrid);
+    final action = PoliceAi.decideAction(
+      heli,
+      helicopters,
+      searchedGrid,
+      difficulty: aiDifficulty,
+      revealedTraces: revealedTraces,
+    );
 
     switch (action.type) {
       case PoliceActionType.search:
@@ -1226,22 +1248,71 @@ class _GamePageState extends State<GamePage> {
   // ※道路は「2車線」で確定したため、切り替えボタンは廃止し _roadStyle は
   //   常に RoadStyle.twoLane 固定（フィールド宣言側で初期値のまま変更していない）。
 
-  Widget _buildStyleToggleRow(AppTheme theme) {
+  // 「凡例」と「デザイン切替」を横並びにした行（凡例が左、切替が右）。
+  // 画面が狭い場合はWrapで自動的に折り返す。
+  Widget _buildDesignControlsRow(AppTheme theme) {
     return SizedBox(
       width: boardPixelSize,
       child: Wrap(
         alignment: WrapAlignment.center,
-        spacing: 8,
-        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 14,
+        runSpacing: 8,
+        children: [_buildTraceLegend(theme), _buildStyleToggleRow(theme)],
+      ),
+    );
+  }
+
+  Widget _buildStyleToggleRow(AppTheme theme) {
+    // 「これは切り替えボタンです」と一目で伝わるよう、枠で囲み、
+    // アイコン＋ラベルの見出しを付けた上で、選択中／未選択がはっきり
+    // 分かる連結ピル型のセグメントコントロールにしている。
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackground,
+        border: Border.all(color: theme.gridLine, width: 1.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _styleToggleChip(
+          Icon(Icons.swap_horiz, size: 14, color: theme.inkColor),
+          const SizedBox(width: 4),
+          Text(
+            'ビルデザイン切替：',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: theme.inkColor,
+            ),
+          ),
+          const SizedBox(width: 6),
+          _buildingStyleSegmentedControl(theme),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildingStyleSegmentedControl(AppTheme theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.gridLine, width: 1.2),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _segmentButton(
             label: '① 屋根パターン風',
             selected: _buildingStyle == BuildingStyle.roofPattern,
             theme: theme,
             onTap: () =>
                 setState(() => _buildingStyle = BuildingStyle.roofPattern),
           ),
-          _styleToggleChip(
+          Container(width: 1.2, color: theme.gridLine),
+          _segmentButton(
             label: '② 新影風',
             selected: _buildingStyle == BuildingStyle.shadowRelief,
             theme: theme,
@@ -1253,7 +1324,9 @@ class _GamePageState extends State<GamePage> {
     );
   }
 
-  Widget _styleToggleChip({
+  // セグメントコントロールの1ボタン分。選択中は塗りつぶし＋チェックマーク、
+  // 未選択は背景透明のテキストのみ、という明確な差をつけている。
+  Widget _segmentButton({
     required String label,
     required bool selected,
     required AppTheme theme,
@@ -1261,21 +1334,82 @@ class _GamePageState extends State<GamePage> {
   }) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? theme.gridLine : theme.scaffoldBackground,
-          border: Border.all(color: theme.gridLine, width: 1.4),
-          borderRadius: BorderRadius.circular(16),
+        color: selected ? theme.gridLine : Colors.transparent,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              Icon(Icons.check, size: 12, color: theme.appBarForeground),
+              const SizedBox(width: 3),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: selected ? theme.appBarForeground : theme.inkColor,
+              ),
+            ),
+          ],
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            color: selected ? theme.appBarForeground : theme.inkColor,
+      ),
+    );
+  }
+
+  // 画面が広い時だけ使う、盤面の右側に置くパネル。
+  // 横幅が狭いので、デザイン切替（セグメントコントロール）と凡例を
+  // 縦に積む構成にしている。中身の判定ロジックは既存のものをそのまま再利用。
+  Widget _buildSidePanelDesignControls(AppTheme theme) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackground,
+        border: Border.all(color: theme.gridLine, width: 1.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.swap_horiz, size: 14, color: theme.inkColor),
+              const SizedBox(width: 4),
+              Text(
+                'デザイン切替',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: theme.inkColor,
+                ),
+              ),
+            ],
           ),
-        ),
+          const SizedBox(height: 8),
+          _buildingStyleSegmentedControl(theme),
+          const SizedBox(height: 16),
+          Divider(color: theme.gridLine.withOpacity(0.5), height: 1),
+          const SizedBox(height: 12),
+          Text(
+            '痕跡の色',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: theme.inkColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final item in _traceLegendItems(theme))
+                Padding(padding: const EdgeInsets.only(bottom: 6), child: item),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1286,32 +1420,117 @@ class _GamePageState extends State<GamePage> {
   // 色分けしている（_getTraceColor参照）。盤面上では1・6以外の具体的な
   // ターン数はプレイ中わからないようにしているため、色の意味だけでも
   // 一目でわかるよう、盤面の外に小さな凡例を出す。
-  Widget _buildTraceLegend(AppTheme theme) {
-    Widget swatch(Color color, String label) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 11, color: theme.inkColor)),
-        ],
-      );
-    }
+  // ※「トグルと並べたときに凡例だと分かりにくい」というフィードバックを受け、
+  // 　枠で囲んで独立したパーツだと分かるようにしている。
 
-    return SizedBox(
-      width: boardPixelSize,
+  // 凡例1項目分（色の丸＋ラベル）。横並び・縦並びどちらの凡例からも使う。
+  Widget _traceLegendSwatch(AppTheme theme, Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 11, color: theme.inkColor)),
+      ],
+    );
+  }
+
+  List<Widget> _traceLegendItems(AppTheme theme) {
+    return [
+      _traceLegendSwatch(theme, Colors.amber, '1ターン目'),
+      _traceLegendSwatch(theme, Colors.grey[400]!, 'その他'),
+      _traceLegendSwatch(theme, Colors.redAccent, '6ターン目'),
+    ];
+  }
+
+  // 盤面の下に表示する、横並び・枠付きの凡例（画面が狭い時のフォールバック用）。
+  Widget _buildTraceLegend(AppTheme theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackground,
+        border: Border.all(color: theme.gridLine, width: 1.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Wrap(
         alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
         spacing: 14,
         runSpacing: 4,
+        children: _traceLegendItems(theme),
+      ),
+    );
+  }
+
+  /// 盤面の右下にだけ、候補選択中の確認操作を表示する。
+  Widget _buildBoardWithAction(AppTheme theme, double size) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
         children: [
-          swatch(Colors.amber, '1ターン目'),
-          swatch(Colors.grey[400]!, 'その他'),
-          swatch(Colors.redAccent, '6ターン目'),
+          BoardWidget(
+            boardPixelSize: size,
+            heliMarkerSize: heliMarkerSize,
+            boardSize: boardSize,
+            currentPhase: currentPhase,
+            playerRole: playerRole,
+            carRow: carRow,
+            carCol: carCol,
+            traceGrid: traceGrid,
+            revealedTraces: revealedTraces,
+            lastSearchedByHeli: lastSearchedByHeli,
+            searchingRow: searchingRow,
+            searchingCol: searchingCol,
+            helicopters: helicopters,
+            currentHeliIndex: currentHeliIndex,
+            isPoliceTurnRunning: isPoliceTurnRunning,
+            pendingRow: pendingRow,
+            pendingCol: pendingCol,
+            pendingIsSearch: pendingIsSearch,
+            getTraceColor: _getTraceColor,
+            onBuildingTap: _onBuildingTap,
+            onIntersectionTap: _onIntersectionTap,
+            theme: theme,
+            buildingStyle: _buildingStyle,
+            roadStyle: _roadStyle,
+          ),
+          if (_hasPendingAction)
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.scaffoldBackground.withOpacity(0.96),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _confirmPendingAction,
+                        icon: const Icon(Icons.check),
+                        label: const Text('決定'),
+                      ),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        onPressed: _cancelPendingAction,
+                        tooltip: 'キャンセル',
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1345,15 +1564,6 @@ class _GamePageState extends State<GamePage> {
       );
     }
 
-    // 左側ログパネル・右側コントロール欄＋盤面、全体の高さを揃えるための合計値
-    const double mainAreaHeight =
-        controlAreaHeight +
-        12 +
-        boardPixelSize +
-        10 +
-        styleToggleAreaHeight +
-        8 +
-        traceLegendAreaHeight;
     final theme = AppTheme.boardGame();
 
     return Stack(
@@ -1378,13 +1588,12 @@ class _GamePageState extends State<GamePage> {
               ),
             ],
           ),
-          body: SingleChildScrollView(
-            child: Column(
+          body: Column(
               children: [
                 // 画面上部：ステータスヘッダー／結果バナー切り替え領域（高さ固定）
                 Container(
                   width: double.infinity,
-                  height: headerAreaHeight,
+                  height: currentPhase == GamePhase.gameOver ? 120 : 56,
                   color: currentPhase == GamePhase.gameOver
                       ? theme.pendingSearchColor.withOpacity(0.25)
                       : theme.buildingHighlight.withOpacity(0.4),
@@ -1399,70 +1608,40 @@ class _GamePageState extends State<GamePage> {
                   ),
                 ),
 
-                const SizedBox(height: 12),
-
-                // メインエリア：左＝ログパネル／右＝操作コントロール欄＋盤面（PCデスクトップ向け横並び固定レイアウト）
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // 左：ログパネル
-                      LogPanel(
-                        logHistory: logHistory,
-                        width: logPanelWidth,
-                        height: mainAreaHeight,
-                      ),
-                      const SizedBox(width: 16),
-                      // 右：操作コントロール欄（固定高さ）＋盤面（固定位置）
-                      Column(
-                        children: [
-                          SizedBox(
-                            width: boardPixelSize,
-                            height: controlAreaHeight,
-                            child: _buildControlArea(),
-                          ),
-                          const SizedBox(height: 12),
-                          BoardWidget(
-                            boardPixelSize: boardPixelSize,
-                            heliMarkerSize: heliMarkerSize,
-                            boardSize: boardSize,
-                            currentPhase: currentPhase,
-                            playerRole: playerRole,
-                            carRow: carRow,
-                            carCol: carCol,
-                            traceGrid: traceGrid,
-                            revealedTraces: revealedTraces,
-                            lastSearchedByHeli: lastSearchedByHeli,
-                            searchingRow: searchingRow,
-                            searchingCol: searchingCol,
-                            helicopters: helicopters,
-                            currentHeliIndex: currentHeliIndex,
-                            isPoliceTurnRunning: isPoliceTurnRunning,
-                            pendingRow: pendingRow,
-                            pendingCol: pendingCol,
-                            pendingIsSearch: pendingIsSearch,
-                            getTraceColor: _getTraceColor,
-                            onBuildingTap: _onBuildingTap,
-                            onIntersectionTap: _onIntersectionTap,
-                            theme: theme,
-                            buildingStyle: _buildingStyle,
-                            roadStyle: _roadStyle,
-                          ),
-                          const SizedBox(height: 10),
-                          _buildStyleToggleRow(theme),
-                          const SizedBox(height: 8),
-                          _buildTraceLegend(theme),
-                        ],
-                      ),
-                    ],
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final showLog = constraints.maxWidth >= 760;
+                        final availableBoardWidth = showLog
+                            ? constraints.maxWidth - logPanelWidth - 16
+                            : constraints.maxWidth;
+                        final size = min(
+                          boardPixelSize,
+                          min(constraints.maxHeight, availableBoardWidth),
+                        );
+                        final board = _buildBoardWithAction(theme, size);
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (showLog) ...[
+                              LogPanel(
+                                logHistory: logHistory,
+                                width: logPanelWidth,
+                                height: size,
+                              ),
+                              const SizedBox(width: 16),
+                            ],
+                            board,
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ),
-
-                const SizedBox(height: 16),
               ],
-            ),
           ),
         ),
         if (_pendingHandoffPhase != null) _buildHandoffConfirmOverlay(),

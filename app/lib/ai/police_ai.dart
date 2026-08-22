@@ -2,6 +2,7 @@ import 'dart:math';
 
 import '../models/helicopter.dart';
 import '../models/police_ai_action.dart';
+import '../models/ai_difficulty.dart';
 
 /// 警察（ヘリコプター）に関するAIロジック。
 /// 「次に何をすべきか」を判断して PoliceAiAction として返すのみで、
@@ -15,6 +16,10 @@ class PoliceAi {
     Helicopter heli,
     List<Helicopter> allHelicopters,
     List<List<bool>> searchedGrid,
+    {
+      AiDifficulty difficulty = AiDifficulty.normal,
+      List<List<bool>>? revealedTraces,
+    }
   ) {
     List<List<int>> zoneCells = [
       [heli.row, heli.col],
@@ -27,6 +32,24 @@ class PoliceAi {
 
     if (unsearchedInZone.isNotEmpty) {
       final random = Random();
+      // 難しいAIは、発見済み痕跡の近くから優先して捜索する。
+      if (difficulty == AiDifficulty.hard && revealedTraces != null) {
+        final traces = <List<int>>[];
+        for (var r = 0; r < revealedTraces.length; r++) {
+          for (var c = 0; c < revealedTraces[r].length; c++) {
+            if (revealedTraces[r][c]) traces.add([r, c]);
+          }
+        }
+        if (traces.isNotEmpty) {
+          unsearchedInZone.sort((a, b) {
+            int distance(List<int> cell) => traces
+                .map((trace) => (cell[0] - trace[0]).abs() + (cell[1] - trace[1]).abs())
+                .reduce((a, b) => a < b ? a : b);
+            return distance(a).compareTo(distance(b));
+          });
+          return PoliceAiAction.search(unsearchedInZone.first[0], unsearchedInZone.first[1]);
+        }
+      }
       final target = unsearchedInZone[random.nextInt(unsearchedInZone.length)];
       return PoliceAiAction.search(target[0], target[1]);
     }
@@ -46,6 +69,12 @@ class PoliceAi {
 
     if (candidates.isEmpty) {
       return const PoliceAiAction.wait();
+    }
+
+    if (difficulty == AiDifficulty.easy) {
+      final random = Random();
+      final move = candidates[random.nextInt(candidates.length)];
+      return PoliceAiAction.move(move[0], move[1]);
     }
 
     int bestScore = -1;

@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import '../models/ai_difficulty.dart';
+
 /// 犯人（車）に関するAIロジック・移動計算。
 /// 人間プレイヤーの移動可否チェック（移動ハイライト・包囲判定）にも
 /// 共通で利用される。
@@ -35,16 +37,25 @@ class CriminalAi {
     int boardSize,
     int carRow,
     int carCol,
+    {AiDifficulty difficulty = AiDifficulty.normal,}
   ) {
     List<List<int>> validMoves = getValidMoves(traceGrid, boardSize, carRow, carCol);
     if (validMoves.isEmpty) {
       return null;
     }
 
+    final random = Random();
+    if (difficulty == AiDifficulty.easy) {
+      return validMoves[random.nextInt(validMoves.length)];
+    }
+
     int bestEscapeCount = -1;
     List<List<int>> bestMoves = [];
     for (var mv in validMoves) {
       int escapeCount = getValidMoves(traceGrid, boardSize, mv[0], mv[1]).length;
+      if (difficulty == AiDifficulty.hard) {
+        escapeCount = escapeCount * 100 + _reachableCellCount(traceGrid, boardSize, mv[0], mv[1]);
+      }
       if (escapeCount > bestEscapeCount) {
         bestEscapeCount = escapeCount;
         bestMoves = [mv];
@@ -53,7 +64,19 @@ class CriminalAi {
       }
     }
 
-    final random = Random();
     return bestMoves[random.nextInt(bestMoves.length)];
+  }
+
+  static int _reachableCellCount(List<List<int>> traceGrid, int boardSize, int startRow, int startCol) {
+    final visited = <String>{'$startRow,$startCol'};
+    final queue = <List<int>>[[startRow, startCol]];
+    for (var index = 0; index < queue.length; index++) {
+      final cell = queue[index];
+      for (final next in getValidMoves(traceGrid, boardSize, cell[0], cell[1])) {
+        final key = '${next[0]},${next[1]}';
+        if (visited.add(key)) queue.add(next);
+      }
+    }
+    return visited.length;
   }
 }

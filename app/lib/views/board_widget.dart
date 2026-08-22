@@ -58,8 +58,9 @@ class _RoadNetworkPainter extends CustomPainter {
     if (roadStyle == RoadStyle.thin) return;
 
     final isHorizontal = (a.dy - b.dy).abs() < 0.01;
-    // ビル同士の隙間（約24px）にきちんと収まるよう、道路幅は控えめにしている。
-    final double edgeOffset = boardPixelSize * 0.011;
+    // レーンラインは道路の中に収まるよう、道路幅(0.04)の半分より
+    // 内側（0.012）に配置する。
+    final double edgeOffset = boardPixelSize * 0.012;
     final Offset offsetVec = isHorizontal
         ? Offset(0, edgeOffset)
         : Offset(edgeOffset, 0);
@@ -142,20 +143,23 @@ class _RoadNetworkPainter extends CustomPainter {
     }
 
     // 2車線風：太めのアスファルト本線
-    // ※ビル同士の隙間（約24px）にきちんと収まるよう、以前(0.045)より細めにしている。
+    // ※ビル同士の隙間（boardPixelSize*0.04＝margin 0.02×2辺）にぴったり
+    // 　一致させ、下地の色が細く見えてしまう不均一さを解消している。
+    // 　strokeCapもroundからbuttに変更し、端の丸みによる誤差をなくした。
     canvas.drawPath(
       mainPath,
       Paint()
         ..color = asphaltColor
-        ..strokeWidth = boardPixelSize * 0.028
-        ..strokeCap = StrokeCap.round
+        ..strokeWidth = boardPixelSize * 0.04
+        ..strokeCap = StrokeCap.butt
         ..style = PaintingStyle.stroke,
     );
 
     // 交差点の四角（アスファルト色のRect）は描かない。
     // ビルの層より手前に描かれるため各ビルの角にめり込んで見えるうえ、
     // ビル側の「捜索済みマーカー」を隠してしまっていたため廃止。
-    // 本線同士は strokeCap.round のおかげで自然につながる。
+    // 本線同士は、各セグメントが交差点の中心を共有しているため、
+    // buttキャップでも隙間なく自然につながる。
 
     // レーンライン（両端）
     final edgePaint = Paint()
@@ -975,8 +979,10 @@ class BoardWidget extends StatelessWidget {
                         ),
                       ),
                       // 行動済みバッジ：警察役=人間がどのヘリを操作済みか一目で分かるように表示
-                      // ※ビル側の「捜索済み」マーカー（赤茶の丸＋チェック）と紛らわしいとの
-                      // 　フィードバックを受け、こちらはマスタードゴールドの丸＋二重チェックに変更している。
+                      // ※以前は「二重チェック」アイコンを使っていたが、小さいバッジの中では
+                      // 　「バッジが2つ重なっている」ように見えるとのフィードバックを受け、
+                      // 　単独のチェックマークに変更。ビル側の「捜索済み」マーカー（赤茶の丸）とは
+                      // 　位置（右下／マス右上）と色（マスタードゴールド／赤茶）で区別している。
                       if (isActed)
                         Positioned(
                           bottom: -2,
@@ -992,7 +998,7 @@ class BoardWidget extends StatelessWidget {
                               ),
                             ),
                             child: Icon(
-                              Icons.done_all,
+                              Icons.check,
                               color: theme.inkColor,
                               size: 11,
                             ),
