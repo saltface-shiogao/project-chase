@@ -77,18 +77,25 @@ class _ModeSelectViewState extends State<ModeSelectView> {
                 ),
               ),
               const SizedBox(height: 8),
-              SegmentedButton<AiDifficulty>(
-                segments: AiDifficulty.values
-                    .map(
-                      (value) => ButtonSegment<AiDifficulty>(
-                        value: value,
-                        label: Text(value.label),
-                      ),
-                    )
-                    .toList(),
-                selected: {_difficulty},
-                onSelectionChanged: (values) =>
-                    setState(() => _difficulty = values.first),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  return SegmentedButton<AiDifficulty>(
+                    segments: AiDifficulty.values
+                        .map(
+                          (value) => ButtonSegment<AiDifficulty>(
+                            value: value,
+                            label: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(value.label),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    selected: {_difficulty},
+                    onSelectionChanged: (values) =>
+                        setState(() => _difficulty = values.first),
+                  );
+                },
               ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
