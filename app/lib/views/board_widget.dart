@@ -58,7 +58,8 @@ class _RoadNetworkPainter extends CustomPainter {
     if (roadStyle == RoadStyle.thin) return;
 
     final isHorizontal = (a.dy - b.dy).abs() < 0.01;
-    final double edgeOffset = boardPixelSize * 0.019;
+    // ビル同士の隙間（約24px）にきちんと収まるよう、道路幅は控えめにしている。
+    final double edgeOffset = boardPixelSize * 0.011;
     final Offset offsetVec = isHorizontal
         ? Offset(0, edgeOffset)
         : Offset(edgeOffset, 0);
@@ -141,11 +142,12 @@ class _RoadNetworkPainter extends CustomPainter {
     }
 
     // 2車線風：太めのアスファルト本線
+    // ※ビル同士の隙間（約24px）にきちんと収まるよう、以前(0.045)より細めにしている。
     canvas.drawPath(
       mainPath,
       Paint()
         ..color = asphaltColor
-        ..strokeWidth = boardPixelSize * 0.045
+        ..strokeWidth = boardPixelSize * 0.028
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke,
     );
@@ -539,7 +541,7 @@ class BoardWidget extends StatelessWidget {
                         child: GestureDetector(
                           onTap: () => onBuildingTap(r, c),
                           child: Container(
-                            margin: const EdgeInsets.all(3),
+                            margin: EdgeInsets.all(boardPixelSize * 0.02),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topCenter,
@@ -699,11 +701,18 @@ class BoardWidget extends StatelessWidget {
                                                   ]
                                                 : null,
                                           ),
-                                          // 痕跡が何ターン目のものかは、プレイ中は
-                                          // 隠す（新しい／古いは色の違いのみで表現）。
-                                          // ゲーム終了後の振り返り時のみ数字を表示する。
+                                          // 痕跡が「何ターン目のものか」は基本的に
+                                          // 隠すが、色分けの根拠となっている1ターン目
+                                          // （黄）・6ターン目（赤）の2つだけは、色の
+                                          // 意味を理解しやすくするため数字を表示する。
+                                          // それ以外（グレー＝その他のターン）は、
+                                          // プレイ中は数字を出さない。ゲーム終了後の
+                                          // 振り返り時は全ての数字を表示する。
                                           child:
-                                              currentPhase == GamePhase.gameOver
+                                              currentPhase ==
+                                                      GamePhase.gameOver ||
+                                                  traceGrid[r][c] == 1 ||
+                                                  traceGrid[r][c] == 6
                                               ? Text(
                                                   '${traceGrid[r][c]}',
                                                   style: const TextStyle(
@@ -883,8 +892,12 @@ class BoardWidget extends StatelessWidget {
                     (dr == 1 && dc == 0) || (dr == 0 && dc == 1);
               }
 
-              // 移動候補（未確定）：タップしたがまだ「確定」ボタンを押していない交差点
+              // 移動候補（未確定）：タップしたがまだ「確定」ボタンを押していない交差点。
+              // ※以前は playerRole のチェックが抜けていたため、犯人役がビルを選んだ際の
+              //   pendingRow/pendingCol の値がたまたま近くの交差点の座標と一致すると、
+              //   無関係な交差点まで光ってしまうバグがあった。ここで役割チェックを追加して修正。
               bool isPendingMove =
+                  playerRole == PlayerRole.police &&
                   heliIndex == -1 &&
                   !pendingIsSearch &&
                   pendingRow == i &&

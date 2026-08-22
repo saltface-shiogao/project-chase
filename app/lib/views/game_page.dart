@@ -26,7 +26,9 @@ class _GamePageState extends State<GamePage> {
   static const int maxRounds = 11;
 
   // 盤面の表示サイズ（ピクセル）。ブラウザでの視認性を考慮したサイズ。
-  static const double boardPixelSize = 520;
+  // 道路（2車線）がビルの隙間にきちんと収まるよう、隙間を広げた分だけ
+  // 盤面サイズも大きくしている（520→600）。
+  static const double boardPixelSize = 600;
   static const double heliMarkerSize = 46;
 
   // ログとして画面に残す最大件数
@@ -44,12 +46,12 @@ class _GamePageState extends State<GamePage> {
   // 盤面の左上に置く「操作コントロール／確認」領域の高さ
   // （警察役の「現在操作中のヘリ」表示・確定/キャンセルボタン、犯人役へのヒント文言などが入る）。
   // フェーズによって表示内容が有る/無いが変わっても、高さは固定する。
-  // スタイル切り替えチップ行のおおよその高さ（盤面の下に追加した分）。
-  // ログパネルとの高さ揃え（mainAreaHeight）に反映する。
   static const double controlAreaHeight = 96;
   // スタイル切り替えチップ行のおおよその高さ（盤面の下に追加した分）。
-  // ログパネルとの高さ揃え（mainAreaHeight）に反映する。
   static const double styleToggleAreaHeight = 44;
+  // 痕跡の色分け凡例のおおよその高さ（盤面のさらに下に追加した分）。
+  static const double traceLegendAreaHeight = 24;
+  // 上記2つを含め、ログパネルとの高さ揃え（mainAreaHeight）に反映する。
   // 左側ログパネルの幅（折り返し表示でも読みやすいよう少し広めに設定。
   // この値はゲーム中・ゲーム終了時を通じて変わらない固定値）
   static const double logPanelWidth = 260;
@@ -664,6 +666,16 @@ class _GamePageState extends State<GamePage> {
       return;
     if (isPoliceTurnRunning) return;
 
+    // 既に候補として選択中のビルを、もう一度タップした場合は
+    // 「確定ボタンを押した」のと同じ扱いにする（操作の手間を減らすショートカット）。
+    if (_hasPendingAction &&
+        !pendingIsSearch &&
+        pendingRow == r &&
+        pendingCol == c) {
+      _confirmPendingAction();
+      return;
+    }
+
     int dr = (carRow - r).abs();
     int dc = (carCol - c).abs();
     bool isAdjacentOrtho = (dr == 1 && dc == 0) || (dr == 0 && dc == 1);
@@ -868,6 +880,16 @@ class _GamePageState extends State<GamePage> {
     }
 
     if (playerRole == PlayerRole.police) {
+      // 既に候補として選択中のビルを、もう一度タップした場合は
+      // 「確定ボタンを押した」のと同じ扱いにする（操作の手間を減らすショートカット）。
+      if (_hasPendingAction &&
+          pendingIsSearch &&
+          pendingRow == r &&
+          pendingCol == c) {
+        _confirmPendingAction();
+        return;
+      }
+
       final currentHeli = helicopters[currentHeliIndex];
 
       if (currentHeli.hasActedThisTurn) {
@@ -918,6 +940,16 @@ class _GamePageState extends State<GamePage> {
 
     // 空いている交差点をタップした場合は、選択中のヘリの移動先「候補」として保持する
     final currentHeli = helicopters[currentHeliIndex];
+
+    // 既に候補として選択中の交差点を、もう一度タップした場合は
+    // 「確定ボタンを押した」のと同じ扱いにする（操作の手間を減らすショートカット）。
+    if (_hasPendingAction &&
+        !pendingIsSearch &&
+        pendingRow == i &&
+        pendingCol == j) {
+      _confirmPendingAction();
+      return;
+    }
 
     if (currentHeli.hasActedThisTurn) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1188,9 +1220,11 @@ class _GamePageState extends State<GamePage> {
 
   // ============ 盤面デザインの見た目スタイル切り替え（表示専用・ロジックなし） ============
   //
-  // ビル・道路の見た目は BoardWidget 側にすでに両対応が入っているため、
+  // ビルの見た目は BoardWidget 側にすでに両対応が入っているため、
   // ここでは「今どちらを選んでいるか」を保持し、ボタンで切り替えるだけでよい。
   // ゲームロジック（判定・状態管理）には一切影響しない。
+  // ※道路は「2車線」で確定したため、切り替えボタンは廃止し _roadStyle は
+  //   常に RoadStyle.twoLane 固定（フィールド宣言側で初期値のまま変更していない）。
 
   Widget _buildStyleToggleRow(AppTheme theme) {
     return SizedBox(
@@ -1213,18 +1247,6 @@ class _GamePageState extends State<GamePage> {
             theme: theme,
             onTap: () =>
                 setState(() => _buildingStyle = BuildingStyle.shadowRelief),
-          ),
-          _styleToggleChip(
-            label: '道路：現行',
-            selected: _roadStyle == RoadStyle.thin,
-            theme: theme,
-            onTap: () => setState(() => _roadStyle = RoadStyle.thin),
-          ),
-          _styleToggleChip(
-            label: '道路：2車線',
-            selected: _roadStyle == RoadStyle.twoLane,
-            theme: theme,
-            onTap: () => setState(() => _roadStyle = RoadStyle.twoLane),
           ),
         ],
       ),
@@ -1254,6 +1276,43 @@ class _GamePageState extends State<GamePage> {
             color: selected ? theme.appBarForeground : theme.inkColor,
           ),
         ),
+      ),
+    );
+  }
+
+  // ============ 痕跡の色分け凡例（表示専用・ロジックなし） ============
+  //
+  // 痕跡マーカーは「1ターン目＝黄」「6ターン目＝赤」「それ以外＝グレー」で
+  // 色分けしている（_getTraceColor参照）。盤面上では1・6以外の具体的な
+  // ターン数はプレイ中わからないようにしているため、色の意味だけでも
+  // 一目でわかるよう、盤面の外に小さな凡例を出す。
+  Widget _buildTraceLegend(AppTheme theme) {
+    Widget swatch(Color color, String label) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 11, color: theme.inkColor)),
+        ],
+      );
+    }
+
+    return SizedBox(
+      width: boardPixelSize,
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 14,
+        runSpacing: 4,
+        children: [
+          swatch(Colors.amber, '1ターン目'),
+          swatch(Colors.grey[400]!, 'その他'),
+          swatch(Colors.redAccent, '6ターン目'),
+        ],
       ),
     );
   }
@@ -1288,7 +1347,13 @@ class _GamePageState extends State<GamePage> {
 
     // 左側ログパネル・右側コントロール欄＋盤面、全体の高さを揃えるための合計値
     const double mainAreaHeight =
-        controlAreaHeight + 12 + boardPixelSize + 10 + styleToggleAreaHeight;
+        controlAreaHeight +
+        12 +
+        boardPixelSize +
+        10 +
+        styleToggleAreaHeight +
+        8 +
+        traceLegendAreaHeight;
     final theme = AppTheme.boardGame();
 
     return Stack(
@@ -1387,6 +1452,8 @@ class _GamePageState extends State<GamePage> {
                           ),
                           const SizedBox(height: 10),
                           _buildStyleToggleRow(theme),
+                          const SizedBox(height: 8),
+                          _buildTraceLegend(theme),
                         ],
                       ),
                     ],
