@@ -10,6 +10,7 @@ import '../models/helicopter.dart';
 import '../models/player_role.dart';
 import '../models/police_ai_action.dart';
 import 'board_widget.dart';
+import 'difficulty_select_view.dart';
 import 'handoff_view.dart';
 import 'log_panel.dart';
 import 'mode_select_view.dart';
@@ -202,11 +203,13 @@ class _GamePageState extends State<GamePage> {
   }
 
   // ModeSelectViewでの選択を受け取る。
-  // 1人プレイ：従来通りモードを記録するのみで、役割決定は _chooseRole に委ねる。
-  // ローカル2人対戦：2人対戦は必ず警察側のヘリ配置から始まり、役割を選ぶ余地が
-  // ないため、RoleSelectView自体を経由せず直接ヘリ配置フェーズへ進む。
-  void _choosePlayMode(PlayMode mode, AiDifficulty difficulty) {
-    aiDifficulty = difficulty;
+  // 1人プレイ：モードを記録するのみで、役割決定は _chooseRole に、
+  // 難易度決定は _chooseDifficulty に委ねる
+  // （1人で遊ぶ → 役割選択 → 難易度選択 → ゲーム開始）。
+  // ローカル2人対戦：2人対戦は必ず警察側のヘリ配置から始まり、役割も難易度も
+  // 選ぶ余地がないため、RoleSelectView・DifficultySelectViewを経由せず
+  // 直接ヘリ配置フェーズへ進む。
+  void _choosePlayMode(PlayMode mode) {
     if (mode == PlayMode.localTwoPlayer) {
       setState(() {
         isTwoPlayerMode = true;
@@ -263,12 +266,27 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
-  // 役割選択
+  // 役割選択（1人プレイのみ。2人対戦はRoleSelectViewを経由しないため
+  // このメソッドは呼ばれない）。
+  // 役割を記録し、次の難易度選択画面（DifficultySelectView）へ進む。
+  // 実際のゲームセットアップ（ヘリ配置／車の隠れ場所選択）への遷移は、
+  // 難易度が決まった後の _chooseDifficulty で行う。
   void _chooseRole(PlayerRole role) {
     setState(() {
       playerRole = role;
+      currentPhase = GamePhase.difficultySelect;
+    });
+  }
 
-      if (role == PlayerRole.police) {
+  // 難易度選択（1人プレイのみ）。
+  // DifficultySelectViewでの選択を受けて、選んだ役割に応じたセットアップ
+  // フェーズへ進む。この部分の分岐は、変更前の _chooseRole にあった
+  // ロジックをそのまま移したもの。
+  void _chooseDifficulty(AiDifficulty difficulty) {
+    setState(() {
+      aiDifficulty = difficulty;
+
+      if (playerRole == PlayerRole.police) {
         currentPhase = GamePhase.setupHelicopters;
         _pushLog('【セットアップ】警察ヘリコプター(3機)の初期配置場所（交差点）を3箇所選んでください。');
       } else {
@@ -1466,72 +1484,82 @@ class _GamePageState extends State<GamePage> {
     );
   }
 
-  /// 盤面の右下にだけ、候補選択中の確認操作を表示する。
+  /// 盤面そのものだけを返す（決定/キャンセルボタンは盤面の外・下側に別要素として配置する）。
   Widget _buildBoardWithAction(AppTheme theme, double size) {
     return SizedBox(
       width: size,
       height: size,
-      child: Stack(
-        children: [
-          BoardWidget(
-            boardPixelSize: size,
-            heliMarkerSize: heliMarkerSize,
-            boardSize: boardSize,
-            currentPhase: currentPhase,
-            playerRole: playerRole,
-            carRow: carRow,
-            carCol: carCol,
-            traceGrid: traceGrid,
-            revealedTraces: revealedTraces,
-            lastSearchedByHeli: lastSearchedByHeli,
-            searchingRow: searchingRow,
-            searchingCol: searchingCol,
-            helicopters: helicopters,
-            currentHeliIndex: currentHeliIndex,
-            isPoliceTurnRunning: isPoliceTurnRunning,
-            pendingRow: pendingRow,
-            pendingCol: pendingCol,
-            pendingIsSearch: pendingIsSearch,
-            getTraceColor: _getTraceColor,
-            onBuildingTap: _onBuildingTap,
-            onIntersectionTap: _onIntersectionTap,
-            theme: theme,
-            buildingStyle: _buildingStyle,
-            roadStyle: _roadStyle,
-          ),
-          if (_hasPendingAction)
-            Positioned(
-              right: 12,
-              bottom: 12,
-              child: Material(
-                elevation: 4,
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: theme.scaffoldBackground.withOpacity(0.96),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _confirmPendingAction,
-                        icon: const Icon(Icons.check),
-                        label: const Text('決定'),
-                      ),
-                      const SizedBox(width: 6),
-                      IconButton(
-                        onPressed: _cancelPendingAction,
-                        tooltip: 'キャンセル',
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+      child: BoardWidget(
+        boardPixelSize: size,
+        heliMarkerSize: heliMarkerSize,
+        boardSize: boardSize,
+        currentPhase: currentPhase,
+        playerRole: playerRole,
+        carRow: carRow,
+        carCol: carCol,
+        traceGrid: traceGrid,
+        revealedTraces: revealedTraces,
+        lastSearchedByHeli: lastSearchedByHeli,
+        searchingRow: searchingRow,
+        searchingCol: searchingCol,
+        helicopters: helicopters,
+        currentHeliIndex: currentHeliIndex,
+        isPoliceTurnRunning: isPoliceTurnRunning,
+        pendingRow: pendingRow,
+        pendingCol: pendingCol,
+        pendingIsSearch: pendingIsSearch,
+        getTraceColor: _getTraceColor,
+        onBuildingTap: _onBuildingTap,
+        onIntersectionTap: _onIntersectionTap,
+        theme: theme,
+        buildingStyle: _buildingStyle,
+        roadStyle: _roadStyle,
+      ),
+    );
+  }
+
+  // 盤面の「外側・右下寄り」に表示する決定/キャンセルボタンバー。
+  // 盤面とは重ならない位置に置くため、盤面の下に固定高さの領域として確保する。
+  // _hasPendingActionがfalseの間も高さだけは確保し、表示/非表示でレイアウトが
+  // 動かないようにする（盤面固定配置の原則を踏襲）。
+  static const double pendingActionBarHeight = 56;
+
+  Widget _buildPendingActionBar(AppTheme theme, double width) {
+    if (!_hasPendingAction) {
+      return SizedBox(width: width, height: pendingActionBarHeight);
+    }
+    return SizedBox(
+      width: width,
+      height: pendingActionBarHeight,
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: Material(
+          elevation: 4,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackground.withOpacity(0.96),
+              borderRadius: BorderRadius.circular(8),
             ),
-        ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _confirmPendingAction,
+                  icon: const Icon(Icons.check),
+                  label: const Text('決定'),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  onPressed: _cancelPendingAction,
+                  tooltip: 'キャンセル',
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1545,6 +1573,14 @@ class _GamePageState extends State<GamePage> {
       return RoleSelectView(
         onSelectRole: _chooseRole,
         isTwoPlayerMode: isTwoPlayerMode!,
+      );
+    }
+
+    // 難易度選択（1人プレイのみ）：役割選択の後、ゲーム開始前に表示する。
+    if (currentPhase == GamePhase.difficultySelect) {
+      return DifficultySelectView(
+        onSelectDifficulty: _chooseDifficulty,
+        initialDifficulty: aiDifficulty,
       );
     }
 
@@ -1589,59 +1625,72 @@ class _GamePageState extends State<GamePage> {
             ],
           ),
           body: Column(
-              children: [
-                // 画面上部：ステータスヘッダー／結果バナー切り替え領域（高さ固定）
-                Container(
-                  width: double.infinity,
-                  height: currentPhase == GamePhase.gameOver ? 120 : 56,
-                  color: currentPhase == GamePhase.gameOver
-                      ? theme.pendingSearchColor.withOpacity(0.25)
-                      : theme.buildingHighlight.withOpacity(0.4),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 12,
-                    horizontal: 16,
-                  ),
-                  child: Center(
-                    child: currentPhase == GamePhase.gameOver
-                        ? _buildResultBanner()
-                        : _buildStatusHeader(),
-                  ),
+            children: [
+              // 画面上部：ステータスヘッダー／結果バナー切り替え領域（高さ固定）
+              Container(
+                width: double.infinity,
+                height: currentPhase == GamePhase.gameOver ? 120 : 56,
+                color: currentPhase == GamePhase.gameOver
+                    ? theme.pendingSearchColor.withOpacity(0.25)
+                    : theme.buildingHighlight.withOpacity(0.4),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 16,
                 ),
+                child: Center(
+                  child: currentPhase == GamePhase.gameOver
+                      ? _buildResultBanner()
+                      : _buildStatusHeader(),
+                ),
+              ),
 
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final showLog = constraints.maxWidth >= 760;
-                        final availableBoardWidth = showLog
-                            ? constraints.maxWidth - logPanelWidth - 16
-                            : constraints.maxWidth;
-                        final size = min(
-                          boardPixelSize,
-                          min(constraints.maxHeight, availableBoardWidth),
-                        );
-                        final board = _buildBoardWithAction(theme, size);
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (showLog) ...[
-                              LogPanel(
-                                logHistory: logHistory,
-                                width: logPanelWidth,
-                                height: size,
-                              ),
-                              const SizedBox(width: 16),
-                            ],
-                            board,
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final showLog = constraints.maxWidth >= 760;
+                      final availableBoardWidth = showLog
+                          ? constraints.maxWidth - logPanelWidth - 16
+                          : constraints.maxWidth;
+                      // ボタンバー分の高さをあらかじめ差し引いておき、
+                      // 盤面+ボタンバーが画面の縦幅に収まるようにする。
+                      final availableBoardHeight =
+                          constraints.maxHeight - pendingActionBarHeight - 8;
+                      final size = min(
+                        boardPixelSize,
+                        min(availableBoardHeight, availableBoardWidth),
+                      );
+                      final board = _buildBoardWithAction(theme, size);
+                      final boardColumn = Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          board,
+                          const SizedBox(height: 8),
+                          _buildPendingActionBar(theme, size),
+                        ],
+                      );
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (showLog) ...[
+                            LogPanel(
+                              logHistory: logHistory,
+                              width: logPanelWidth,
+                              height: size,
+                            ),
+                            const SizedBox(width: 16),
                           ],
-                        );
-                      },
-                    ),
+                          boardColumn,
+                        ],
+                      );
+                    },
                   ),
                 ),
-              ],
+              ),
+            ],
           ),
         ),
         if (_pendingHandoffPhase != null) _buildHandoffConfirmOverlay(),

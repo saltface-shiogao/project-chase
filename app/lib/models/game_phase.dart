@@ -16,8 +16,11 @@
 ///                     犯人プレイヤーへ画面を受け渡す間のフェーズ
 /// handoffToPolice   : 次の手番が警察プレイヤーであることを示し、
 ///                     警察プレイヤーへ画面を受け渡す間のフェーズ
+/// difficultySelect     : 1人プレイのみ。役割選択の後、AI難易度を選ぶフェーズ。
+///                        ローカル2人対戦ではAIを使わないため、この値には遷移しない。
 enum GamePhase {
   roleSelect,
+  difficultySelect,
   setupHelicopters,
   setupCarHuman,
   playing,
