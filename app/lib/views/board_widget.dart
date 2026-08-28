@@ -413,7 +413,6 @@ class BoardWidget extends StatelessWidget {
     // 通り「5等分」する座標系（innerSize）として扱い、ビル・道路・交差点・
     // 街装飾すべてがこの同じ内側の座標系を共有するようにする。
     final double edgeInset = boardPixelSize * 0.02;
-    final double innerSize = boardPixelSize - edgeInset * 2;
 
     final Widget boardCore = Container(
       width: boardPixelSize,
@@ -425,612 +424,638 @@ class BoardWidget extends StatelessWidget {
       ),
       child: Padding(
         padding: EdgeInsets.all(edgeInset),
-        child: Stack(
-          children: [
-            // 1. ビル(5x5)の描画
-            Positioned.fill(
-              child: Column(
-                children: List.generate(boardSize, (r) {
-                  return Expanded(
-                    child: Row(
-                      children: List.generate(boardSize, (c) {
-                        bool isCarRevealedAtGameOver =
-                            currentPhase == GamePhase.gameOver &&
-                            r == carRow &&
-                            c == carCol;
-                        bool isOwnCarVisible =
-                            playerRole == PlayerRole.criminal &&
-                            carRow != -1 &&
-                            r == carRow &&
-                            c == carCol;
-                        bool showCar =
-                            isCarRevealedAtGameOver || isOwnCarVisible;
+        // Border と Padding を差し引いた実際の描画領域を基準にする。
+        // Flutter が実際に割り当てたサイズを使い、ビル・道路・交差点の
+        // 座標系を一致させる。
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final double innerSize = constraints.maxWidth;
+            return Stack(
+              children: [
+                // 1. ビル(5x5)の描画
+                Positioned.fill(
+                  child: Column(
+                    children: List.generate(boardSize, (r) {
+                      return Expanded(
+                        child: Row(
+                          children: List.generate(boardSize, (c) {
+                            bool isCarRevealedAtGameOver =
+                                currentPhase == GamePhase.gameOver &&
+                                r == carRow &&
+                                c == carCol;
+                            bool isOwnCarVisible =
+                                playerRole == PlayerRole.criminal &&
+                                carRow != -1 &&
+                                r == carRow &&
+                                c == carCol;
+                            bool showCar =
+                                isCarRevealedAtGameOver || isOwnCarVisible;
 
-                        // 痕跡の可視性：
-                        // ・ゲーム終了後は犯人の全痕跡を両陣営に公開（逃走ルートを振り返れるように）
-                        // ・プレイ中は、犯人役=自分の全痕跡、警察役=発見済みの痕跡のみ
-                        bool isTraceRevealed =
-                            currentPhase == GamePhase.gameOver
-                            ? traceGrid[r][c] > 0
-                            : (playerRole == PlayerRole.criminal
-                                  ? traceGrid[r][c] > 0
-                                  : revealedTraces[r][c]);
+                            // 痕跡の可視性：
+                            // ・ゲーム終了後は犯人の全痕跡を両陣営に公開（逃走ルートを振り返れるように）
+                            // ・プレイ中は、犯人役=自分の全痕跡、警察役=発見済みの痕跡のみ
+                            bool isTraceRevealed =
+                                currentPhase == GamePhase.gameOver
+                                ? traceGrid[r][c] > 0
+                                : (playerRole == PlayerRole.criminal
+                                      ? traceGrid[r][c] > 0
+                                      : revealedTraces[r][c]);
 
-                        // 犯人視点でのみ意味を持つ：この痕跡がすでに警察に発見されているか
-                        bool isFoundByPolice =
-                            playerRole == PlayerRole.criminal &&
-                            revealedTraces[r][c];
+                            // 犯人視点でのみ意味を持つ：この痕跡がすでに警察に発見されているか
+                            bool isFoundByPolice =
+                                playerRole == PlayerRole.criminal &&
+                                revealedTraces[r][c];
 
-                        // 捜索済みマーカーの表示判定：ヘリ1〜3それぞれの「直近の捜索場所」と
-                        // 一致するかどうかを見る。同じラウンド内で複数ヘリが別の場所を捜索した
-                        // 場合、それぞれの跡が同時に（最大3箇所）残る。あるヘリが新たに別の場所を
-                        // 捜索すると、そのヘリ自身の前回の跡だけが消えて新しい場所に移る
-                        // （他のヘリの跡には影響しない）。
-                        bool showSearchedMarker = lastSearchedByHeli.any(
-                          (pos) => pos[0] == r && pos[1] == c,
-                        );
+                            // 捜索済みマーカーの表示判定：ヘリ1〜3それぞれの「直近の捜索場所」と
+                            // 一致するかどうかを見る。同じラウンド内で複数ヘリが別の場所を捜索した
+                            // 場合、それぞれの跡が同時に（最大3箇所）残る。あるヘリが新たに別の場所を
+                            // 捜索すると、そのヘリ自身の前回の跡だけが消えて新しい場所に移る
+                            // （他のヘリの跡には影響しない）。
+                            bool showSearchedMarker = lastSearchedByHeli.any(
+                              (pos) => pos[0] == r && pos[1] == c,
+                            );
 
-                        // 捜索候補（未確定）：警察役=人間がタップしたが、まだ「確定」ボタンを
-                        // 押していないビル。誤操作防止のため、確定するまで実際の捜索は行われない。
-                        bool isPendingSearch =
-                            pendingIsSearch &&
-                            pendingRow == r &&
-                            pendingCol == c;
+                            // 捜索候補（未確定）：警察役=人間がタップしたが、まだ「確定」ボタンを
+                            // 押していないビル。誤操作防止のため、確定するまで実際の捜索は行われない。
+                            bool isPendingSearch =
+                                pendingIsSearch &&
+                                pendingRow == r &&
+                                pendingCol == c;
 
-                        // 移動候補（未確定）：犯人役=人間がタップしたが、まだ「確定」ボタンを
-                        // 押していないビル。警察側の isPendingSearch と対になる仕組み。
-                        bool isPendingCriminalMove =
-                            playerRole == PlayerRole.criminal &&
-                            !pendingIsSearch &&
-                            pendingRow == r &&
-                            pendingCol == c;
+                            // 移動候補（未確定）：犯人役=人間がタップしたが、まだ「確定」ボタンを
+                            // 押していないビル。警察側の isPendingSearch と対になる仕組み。
+                            bool isPendingCriminalMove =
+                                playerRole == PlayerRole.criminal &&
+                                !pendingIsSearch &&
+                                pendingRow == r &&
+                                pendingCol == c;
 
-                        // 選択中ヘリの捜索可能範囲（周囲4マス）。モード切替は廃止したため、
-                        // ヘリが選択されていて未行動であれば常にガイドとして表示する。
-                        bool isSearchableArea =
-                            currentPhase == GamePhase.playing &&
-                            playerRole == PlayerRole.police &&
-                            activeHeli != null &&
-                            (r == activeHeli.row || r == activeHeli.row + 1) &&
-                            (c == activeHeli.col || c == activeHeli.col + 1);
+                            // 選択中ヘリの捜索可能範囲（周囲4マス）。モード切替は廃止したため、
+                            // ヘリが選択されていて未行動であれば常にガイドとして表示する。
+                            bool isSearchableArea =
+                                currentPhase == GamePhase.playing &&
+                                playerRole == PlayerRole.police &&
+                                activeHeli != null &&
+                                (r == activeHeli.row ||
+                                    r == activeHeli.row + 1) &&
+                                (c == activeHeli.col ||
+                                    c == activeHeli.col + 1);
 
-                        bool isMoveCandidate =
-                            currentPhase == GamePhase.playing &&
-                            playerRole == PlayerRole.criminal &&
-                            !isPoliceTurnRunning &&
-                            carRow != -1 &&
-                            CriminalAi.getValidMoves(
-                              traceGrid,
-                              boardSize,
-                              carRow,
-                              carCol,
-                            ).any((mv) => mv[0] == r && mv[1] == c);
+                            bool isMoveCandidate =
+                                currentPhase == GamePhase.playing &&
+                                playerRole == PlayerRole.criminal &&
+                                !isPoliceTurnRunning &&
+                                carRow != -1 &&
+                                CriminalAi.getValidMoves(
+                                  traceGrid,
+                                  boardSize,
+                                  carRow,
+                                  carCol,
+                                ).any((mv) => mv[0] == r && mv[1] == c);
 
-                        // 包囲事前警告（表示のみ・ルール変更なし）：
-                        // この候補へ移動すると、次に動ける隣接マスが0件になる
-                        // （＝次のターンで包囲状態が確定する）場合に警告を出す。
-                        // 1人プレイ・2人対戦を問わず、犯人役=人間のときは常に有効。
-                        bool isDeadEndMoveCandidate =
-                            isMoveCandidate &&
-                            CriminalAi.getValidMoves(
-                              traceGrid,
-                              boardSize,
-                              r,
-                              c,
-                            ).isEmpty;
+                            // 包囲事前警告（表示のみ・ルール変更なし）：
+                            // この候補へ移動すると、次に動ける隣接マスが0件になる
+                            // （＝次のターンで包囲状態が確定する）場合に警告を出す。
+                            // 1人プレイ・2人対戦を問わず、犯人役=人間のときは常に有効。
+                            bool isDeadEndMoveCandidate =
+                                isMoveCandidate &&
+                                CriminalAi.getValidMoves(
+                                  traceGrid,
+                                  boardSize,
+                                  r,
+                                  c,
+                                ).isEmpty;
 
-                        Color cellColor;
-                        if (showCar) {
-                          cellColor = theme.carColor;
-                        } else if (isPendingSearch) {
-                          cellColor = theme.pendingSearchColor;
-                        } else if (isPendingCriminalMove) {
-                          cellColor = Colors.deepOrange;
-                        } else if (isSearchableArea) {
-                          cellColor = theme.searchableZoneColor;
-                        } else if (isDeadEndMoveCandidate) {
-                          cellColor = theme.deadEndWarningColor;
-                        } else if (isMoveCandidate) {
-                          cellColor = theme.moveCandidateColor;
-                        } else {
-                          // 新影風のときは、通常ビルの基本色として写真参考の
-                          // 紺色（buildingShadowReliefTop）を使う。
-                          cellColor =
-                              buildingStyle == BuildingStyle.shadowRelief
-                              ? theme.buildingShadowReliefTop
-                              : theme.buildingColor;
-                        }
-
-                        // 特別な状態（捜索候補／移動候補（確定待ち）／捜索可能ゾーン／
-                        // 移動候補／包囲警告）のときは、その状態色をはっきり見せたいので
-                        // 枠を出す。通常時は枠を出さず、グラデーションのみで立体感を出す
-                        // ことで、マス同士の「継ぎ目」が目立たないようにしている。
-                        final bool isSpecialState =
-                            isPendingSearch ||
-                            isPendingCriminalMove ||
-                            isSearchableArea ||
-                            isMoveCandidate;
-                        final Color topShade = Color.lerp(
-                          cellColor,
-                          Colors.white,
-                          0.16,
-                        )!;
-
-                        return Expanded(
-                          child: GestureDetector(
-                            onTap: () => onBuildingTap(r, c),
-                            child: Container(
-                              margin: EdgeInsets.all(innerSize * 0.02),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [topShade, cellColor],
-                                ),
-                                borderRadius: BorderRadius.circular(
+                            Color cellColor;
+                            if (showCar) {
+                              cellColor = theme.carColor;
+                            } else if (isPendingSearch) {
+                              cellColor = theme.pendingSearchColor;
+                            } else if (isPendingCriminalMove) {
+                              cellColor = Colors.deepOrange;
+                            } else if (isSearchableArea) {
+                              cellColor = theme.searchableZoneColor;
+                            } else if (isDeadEndMoveCandidate) {
+                              cellColor = theme.deadEndWarningColor;
+                            } else if (isMoveCandidate) {
+                              cellColor = theme.moveCandidateColor;
+                            } else {
+                              // 新影風のときは、通常ビルの基本色として写真参考の
+                              // 紺色（buildingShadowReliefTop）を使う。
+                              cellColor =
                                   buildingStyle == BuildingStyle.shadowRelief
-                                      ? 5
-                                      : 6,
-                                ),
-                                border: isPendingSearch
-                                    ? Border.all(
-                                        color: theme.pendingSearchColor,
-                                        width: 3,
-                                      )
-                                    : isPendingCriminalMove
-                                    ? Border.all(
-                                        color: Colors.deepOrange,
-                                        width: 3,
-                                      )
-                                    : isSpecialState
-                                    ? Border.all(
-                                        color: isDeadEndMoveCandidate
-                                            ? theme.deadEndWarningColor
-                                            : isMoveCandidate
-                                            ? theme.moveCandidateColor
-                                            : theme.searchableZoneColor,
-                                        width: isDeadEndMoveCandidate ? 3 : 2,
-                                      )
-                                    : null,
-                              ),
-                              child: Stack(
-                                children: [
-                                  // 新影（立体感）風：屋上のハイライト帯＋窓のマリオン風
-                                  // テクスチャ＋下部の濃色バンドで高さを表現する
-                                  // （マス内に収める版）。
-                                  if (buildingStyle ==
-                                      BuildingStyle.shadowRelief) ...[
-                                    Positioned(
-                                      left: 0,
-                                      right: 0,
-                                      top: 0,
-                                      child: FractionallySizedBox(
-                                        heightFactor: 0.16,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withOpacity(
-                                              0.16,
-                                            ),
-                                            borderRadius:
-                                                const BorderRadius.vertical(
-                                                  top: Radius.circular(5),
-                                                ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      left: 0,
-                                      right: 0,
-                                      top: 0,
-                                      bottom: 0,
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(
-                                          top: 6,
-                                          bottom: 8,
-                                          left: 3,
-                                          right: 3,
-                                        ),
-                                        child: CustomPaint(
-                                          painter: _WindowMullionPainter(
-                                            lineColor: Colors.white.withOpacity(
-                                              0.14,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      left: 0,
-                                      right: 0,
-                                      bottom: 0,
-                                      child: FractionallySizedBox(
-                                        heightFactor: 0.22,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            color: Color.lerp(
-                                              cellColor,
-                                              Colors.black,
-                                              0.38,
-                                            ),
-                                            borderRadius:
-                                                const BorderRadius.vertical(
-                                                  bottom: Radius.circular(5),
-                                                ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ] else
-                                    // 屋根パターン風：パネル継ぎ目＋室外機
-                                    Positioned.fill(
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(6),
-                                        child: CustomPaint(
-                                          painter: _RoofPatternPainter(
-                                            lineColor: theme.buildingShadow
-                                                .withOpacity(0.4),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  Center(
-                                    child: showCar
-                                        ? Icon(
-                                            Icons.directions_car,
-                                            color: theme.inkColor,
-                                            size: 36,
-                                          )
-                                        : Icon(
-                                            Icons.location_city,
-                                            color: theme.buildingShadow
-                                                .withOpacity(0.5),
-                                            size: 30,
-                                          ),
-                                  ),
-                                  if (isTraceRevealed && !showCar)
-                                    Positioned(
-                                      top: 3,
-                                      right: 3,
-                                      child: Stack(
-                                        clipBehavior: Clip.none,
-                                        children: [
-                                          Container(
-                                            // 警察が実際に発見済みの痕跡は、誰の視点でも
-                                            // 大きめ・赤枠で強調する（プレイ中／終了後とも）。
-                                            padding: EdgeInsets.all(
-                                              revealedTraces[r][c] ? 7 : 5,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: getTraceColor(
-                                                traceGrid[r][c],
-                                              ),
-                                              shape: BoxShape.circle,
-                                              border: revealedTraces[r][c]
-                                                  ? Border.all(
-                                                      color: Colors.red,
-                                                      width: 2.5,
-                                                    )
-                                                  : null,
-                                              boxShadow: revealedTraces[r][c]
-                                                  ? const [
-                                                      BoxShadow(
-                                                        color: Colors.black45,
-                                                        blurRadius: 3,
-                                                        offset: Offset(0, 1),
-                                                      ),
-                                                    ]
-                                                  : null,
-                                            ),
-                                            // 痕跡が「何ターン目のものか」は基本的に
-                                            // 隠すが、色分けの根拠となっている1ターン目
-                                            // （黄）・6ターン目（赤）の2つだけは、色の
-                                            // 意味を理解しやすくするため数字を表示する。
-                                            // それ以外（グレー＝その他のターン）は、
-                                            // プレイ中は数字を出さない。ゲーム終了後の
-                                            // 振り返り時は全ての数字を表示する。
-                                            child:
-                                                currentPhase ==
-                                                        GamePhase.gameOver ||
-                                                    traceGrid[r][c] == 1 ||
-                                                    traceGrid[r][c] == 6
-                                                ? Text(
-                                                    '${traceGrid[r][c]}',
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                      color: Colors.black,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
-                                                  )
-                                                : SizedBox(
-                                                    width: revealedTraces[r][c]
-                                                        ? 10
-                                                        : 6,
-                                                    height: revealedTraces[r][c]
-                                                        ? 10
-                                                        : 6,
-                                                  ),
-                                          ),
-                                          // 警察に発見済みの痕跡を強調する目印
-                                          if (isFoundByPolice)
-                                            Positioned(
-                                              bottom: -4,
-                                              left: -4,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(
-                                                  2,
-                                                ),
-                                                decoration: const BoxDecoration(
-                                                  color: Colors.red,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.visibility,
-                                                  color: Colors.white,
-                                                  size: 10,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  // 捜索済みマーカー：ヘリごとの直近の捜索場所（最大3箇所同時表示）
-                                  // ※ヘリの「行動済み」バッジ（交差点側）と紛らわしいとの
-                                  // 　フィードバックを受け、こちらは警察系の色（searchableZoneColor）
-                                  // 　の丸に統一し、色で見分けられるようにしている。
-                                  if (showSearchedMarker && !showCar)
-                                    Positioned(
-                                      bottom: 3,
-                                      left: 3,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(2),
-                                        decoration: BoxDecoration(
-                                          color: theme.searchableZoneColor
-                                              .withOpacity(0.9),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.check,
-                                          color: Colors.white,
-                                          size: 12,
-                                        ),
-                                      ),
-                                    ),
-                                  // 包囲事前警告アイコン：この候補へ移動すると
-                                  // 次に動けなくなる（表示のみ・ルール変更なし）
-                                  if (isDeadEndMoveCandidate && !showCar)
-                                    Positioned(
-                                      bottom: 3,
-                                      right: 3,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(2),
-                                        decoration: BoxDecoration(
-                                          color: theme.deadEndWarningColor,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.warning_amber_rounded,
-                                          color: Colors.white,
-                                          size: 14,
-                                        ),
-                                      ),
-                                    ),
-                                  // 捜索中の演出：拡大鏡アイコン＋ポップ（パルス）アニメーション
-                                  if (r == searchingRow && c == searchingCol)
-                                    Center(
-                                      child: TweenAnimationBuilder<double>(
-                                        tween: Tween(begin: 0.4, end: 1.3),
-                                        duration: const Duration(
-                                          milliseconds: 450,
-                                        ),
-                                        curve: Curves.easeOutBack,
-                                        builder: (context, scale, child) =>
-                                            Transform.scale(
-                                              scale: scale,
-                                              child: child,
-                                            ),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(6),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.black54,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.search,
-                                            color: Colors.white,
-                                            size: 26,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
-                  );
-                }),
-              ),
-            ),
+                                  ? theme.buildingShadowReliefTop
+                                  : theme.buildingColor;
+                            }
 
-            // 2. ヘリコプター専用の通り道（道路レイヤー）。ビルとは別レイヤーで、
-            //    交差点同士を線でつなぐことで、ヘリがこのルート上のみを
-            //    移動していることを視覚的に示す。
-            Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: _RoadNetworkPainter(
-                    boardPixelSize: innerSize,
-                    lineColor: theme.gridLine,
-                    roadStyle: roadStyle,
-                    asphaltColor: theme.roadAsphaltColor,
+                            // 特別な状態（捜索候補／移動候補（確定待ち）／捜索可能ゾーン／
+                            // 移動候補／包囲警告）のときは、その状態色をはっきり見せたいので
+                            // 枠を出す。通常時は枠を出さず、グラデーションのみで立体感を出す
+                            // ことで、マス同士の「継ぎ目」が目立たないようにしている。
+                            final bool isSpecialState =
+                                isPendingSearch ||
+                                isPendingCriminalMove ||
+                                isSearchableArea ||
+                                isMoveCandidate;
+                            final Color topShade = Color.lerp(
+                              cellColor,
+                              Colors.white,
+                              0.16,
+                            )!;
+
+                            return Expanded(
+                              child: GestureDetector(
+                                onTap: () => onBuildingTap(r, c),
+                                child: Container(
+                                  margin: EdgeInsets.all(innerSize * 0.02),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [topShade, cellColor],
+                                    ),
+                                    borderRadius: BorderRadius.circular(
+                                      buildingStyle ==
+                                              BuildingStyle.shadowRelief
+                                          ? 5
+                                          : 6,
+                                    ),
+                                    border: isPendingSearch
+                                        ? Border.all(
+                                            color: theme.pendingSearchColor,
+                                            width: 3,
+                                          )
+                                        : isPendingCriminalMove
+                                        ? Border.all(
+                                            color: Colors.deepOrange,
+                                            width: 3,
+                                          )
+                                        : isSpecialState
+                                        ? Border.all(
+                                            color: isDeadEndMoveCandidate
+                                                ? theme.deadEndWarningColor
+                                                : isMoveCandidate
+                                                ? theme.moveCandidateColor
+                                                : theme.searchableZoneColor,
+                                            width: isDeadEndMoveCandidate
+                                                ? 3
+                                                : 2,
+                                          )
+                                        : null,
+                                  ),
+                                  child: Stack(
+                                    children: [
+                                      // 新影（立体感）風：屋上のハイライト帯＋窓のマリオン風
+                                      // テクスチャ＋下部の濃色バンドで高さを表現する
+                                      // （マス内に収める版）。
+                                      if (buildingStyle ==
+                                          BuildingStyle.shadowRelief) ...[
+                                        Positioned(
+                                          left: 0,
+                                          right: 0,
+                                          top: 0,
+                                          child: FractionallySizedBox(
+                                            heightFactor: 0.16,
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                color: Colors.white.withOpacity(
+                                                  0.16,
+                                                ),
+                                                borderRadius:
+                                                    const BorderRadius.vertical(
+                                                      top: Radius.circular(5),
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          left: 0,
+                                          right: 0,
+                                          top: 0,
+                                          bottom: 0,
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 6,
+                                              bottom: 8,
+                                              left: 3,
+                                              right: 3,
+                                            ),
+                                            child: CustomPaint(
+                                              painter: _WindowMullionPainter(
+                                                lineColor: Colors.white
+                                                    .withOpacity(0.14),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          left: 0,
+                                          right: 0,
+                                          bottom: 0,
+                                          child: FractionallySizedBox(
+                                            heightFactor: 0.22,
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                color: Color.lerp(
+                                                  cellColor,
+                                                  Colors.black,
+                                                  0.38,
+                                                ),
+                                                borderRadius:
+                                                    const BorderRadius.vertical(
+                                                      bottom: Radius.circular(
+                                                        5,
+                                                      ),
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ] else
+                                        // 屋根パターン風：パネル継ぎ目＋室外機
+                                        Positioned.fill(
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(6),
+                                            child: CustomPaint(
+                                              painter: _RoofPatternPainter(
+                                                lineColor: theme.buildingShadow
+                                                    .withOpacity(0.4),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      Center(
+                                        child: showCar
+                                            ? Icon(
+                                                Icons.directions_car,
+                                                color: theme.inkColor,
+                                                size: 36,
+                                              )
+                                            : Icon(
+                                                Icons.location_city,
+                                                color: theme.buildingShadow
+                                                    .withOpacity(0.5),
+                                                size: 30,
+                                              ),
+                                      ),
+                                      if (isTraceRevealed && !showCar)
+                                        Positioned(
+                                          top: 3,
+                                          right: 3,
+                                          child: Stack(
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              Container(
+                                                // 警察が実際に発見済みの痕跡は、誰の視点でも
+                                                // 大きめ・赤枠で強調する（プレイ中／終了後とも）。
+                                                padding: EdgeInsets.all(
+                                                  revealedTraces[r][c] ? 7 : 5,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: getTraceColor(
+                                                    traceGrid[r][c],
+                                                  ),
+                                                  shape: BoxShape.circle,
+                                                  border: revealedTraces[r][c]
+                                                      ? Border.all(
+                                                          color: Colors.red,
+                                                          width: 2.5,
+                                                        )
+                                                      : null,
+                                                  boxShadow:
+                                                      revealedTraces[r][c]
+                                                      ? const [
+                                                          BoxShadow(
+                                                            color:
+                                                                Colors.black45,
+                                                            blurRadius: 3,
+                                                            offset: Offset(
+                                                              0,
+                                                              1,
+                                                            ),
+                                                          ),
+                                                        ]
+                                                      : null,
+                                                ),
+                                                // 痕跡が「何ターン目のものか」は基本的に
+                                                // 隠すが、色分けの根拠となっている1ターン目
+                                                // （黄）・6ターン目（赤）の2つだけは、色の
+                                                // 意味を理解しやすくするため数字を表示する。
+                                                // それ以外（グレー＝その他のターン）は、
+                                                // プレイ中は数字を出さない。ゲーム終了後の
+                                                // 振り返り時は全ての数字を表示する。
+                                                child:
+                                                    currentPhase ==
+                                                            GamePhase
+                                                                .gameOver ||
+                                                        traceGrid[r][c] == 1 ||
+                                                        traceGrid[r][c] == 6
+                                                    ? Text(
+                                                        '${traceGrid[r][c]}',
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors.black,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      )
+                                                    : SizedBox(
+                                                        width:
+                                                            revealedTraces[r][c]
+                                                            ? 10
+                                                            : 6,
+                                                        height:
+                                                            revealedTraces[r][c]
+                                                            ? 10
+                                                            : 6,
+                                                      ),
+                                              ),
+                                              // 警察に発見済みの痕跡を強調する目印
+                                              if (isFoundByPolice)
+                                                Positioned(
+                                                  bottom: -4,
+                                                  left: -4,
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.all(2),
+                                                    decoration:
+                                                        const BoxDecoration(
+                                                          color: Colors.red,
+                                                          shape:
+                                                              BoxShape.circle,
+                                                        ),
+                                                    child: const Icon(
+                                                      Icons.visibility,
+                                                      color: Colors.white,
+                                                      size: 10,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      // 捜索済みマーカー：ヘリごとの直近の捜索場所（最大3箇所同時表示）
+                                      // ※ヘリの「行動済み」バッジ（交差点側）と紛らわしいとの
+                                      // 　フィードバックを受け、こちらは警察系の色（searchableZoneColor）
+                                      // 　の丸に統一し、色で見分けられるようにしている。
+                                      if (showSearchedMarker && !showCar)
+                                        Positioned(
+                                          bottom: 3,
+                                          left: 3,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(2),
+                                            decoration: BoxDecoration(
+                                              color: theme.searchableZoneColor
+                                                  .withOpacity(0.9),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.check,
+                                              color: Colors.white,
+                                              size: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      // 包囲事前警告アイコン：この候補へ移動すると
+                                      // 次に動けなくなる（表示のみ・ルール変更なし）
+                                      if (isDeadEndMoveCandidate && !showCar)
+                                        Positioned(
+                                          bottom: 3,
+                                          right: 3,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(2),
+                                            decoration: BoxDecoration(
+                                              color: theme.deadEndWarningColor,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.warning_amber_rounded,
+                                              color: Colors.white,
+                                              size: 14,
+                                            ),
+                                          ),
+                                        ),
+                                      // 捜索中の演出：拡大鏡アイコン＋ポップ（パルス）アニメーション
+                                      if (r == searchingRow &&
+                                          c == searchingCol)
+                                        Center(
+                                          child: TweenAnimationBuilder<double>(
+                                            tween: Tween(begin: 0.4, end: 1.3),
+                                            duration: const Duration(
+                                              milliseconds: 450,
+                                            ),
+                                            curve: Curves.easeOutBack,
+                                            builder: (context, scale, child) =>
+                                                Transform.scale(
+                                                  scale: scale,
+                                                  child: child,
+                                                ),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(6),
+                                              decoration: const BoxDecoration(
+                                                color: Colors.black54,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(
+                                                Icons.search,
+                                                color: Colors.white,
+                                                size: 26,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                      );
+                    }),
                   ),
                 ),
-              ),
-            ),
 
-            // 2.5 道路上のちょっとした街装飾（木・車・人）。
-            // ヘリが実際に止まる交差点（4×4）の位置は避け、区間の途中
-            // （交差点と交差点の間、または交差点と盤の端の間）だけに、
-            // 控えめな数（6箇所）だけ配置している。当たり判定・ゲームロジックには
-            // 一切関与しない、純粋な見た目だけの装飾レイヤー。
-            if (roadStyle == RoadStyle.twoLane)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: _RoadDecorations(boardPixelSize: innerSize),
+                // 2. ヘリコプター専用の通り道（道路レイヤー）。ビルとは別レイヤーで、
+                //    交差点同士を線でつなぐことで、ヘリがこのルート上のみを
+                //    移動していることを視覚的に示す。
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _RoadNetworkPainter(
+                        boardPixelSize: innerSize,
+                        lineColor: theme.gridLine,
+                        roadStyle: roadStyle,
+                        asphaltColor: theme.roadAsphaltColor,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
 
-            // 3. 交差点(4x4)の描画（ヘリ移動・配置タップ用）
-            ...List.generate(4, (i) {
-              return List.generate(4, (j) {
-                final double top =
-                    (i + 1) * (innerSize / 5) - (heliMarkerSize / 2);
-                final double left =
-                    (j + 1) * (innerSize / 5) - (heliMarkerSize / 2);
+                // 2.5 道路上のちょっとした街装飾（木・車・人）。
+                // ヘリが実際に止まる交差点（4×4）の位置は避け、区間の途中
+                // （交差点と交差点の間、または交差点と盤の端の間）だけに、
+                // 控えめな数（6箇所）だけ配置している。当たり判定・ゲームロジックには
+                // 一切関与しない、純粋な見た目だけの装飾レイヤー。
+                if (roadStyle == RoadStyle.twoLane)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: _RoadDecorations(boardPixelSize: innerSize),
+                    ),
+                  ),
 
-                int heliIndex = helicopters.indexWhere(
-                  (h) => h.row == i && h.col == j,
-                );
-                bool isCurrentHeli =
-                    currentPhase == GamePhase.playing &&
-                    playerRole == PlayerRole.police &&
-                    heliIndex == currentHeliIndex;
-                // このヘリが今ターン、既に行動済みかどうか（警察役=人間の操作順が
-                // 自由に選べるようになったため、どれが行動済みか一目で分かるようにする）
-                bool isActed =
-                    heliIndex != -1 && helicopters[heliIndex].hasActedThisTurn;
+                // 3. 交差点(4x4)の描画（ヘリ移動・配置タップ用）
+                ...List.generate(4, (i) {
+                  return List.generate(4, (j) {
+                    final double top =
+                        (i + 1) * (innerSize / 5) - (heliMarkerSize / 2);
+                    final double left =
+                        (j + 1) * (innerSize / 5) - (heliMarkerSize / 2);
 
-                // 空いている交差点が、選択中ヘリの移動先として有効（タテヨコ隣接）かどうか
-                bool isValidMoveTarget = false;
-                if (heliIndex == -1 &&
-                    currentPhase == GamePhase.playing &&
-                    playerRole == PlayerRole.police &&
-                    activeHeli != null) {
-                  int dr = (activeHeli.row - i).abs();
-                  int dc = (activeHeli.col - j).abs();
-                  isValidMoveTarget =
-                      (dr == 1 && dc == 0) || (dr == 0 && dc == 1);
-                }
+                    int heliIndex = helicopters.indexWhere(
+                      (h) => h.row == i && h.col == j,
+                    );
+                    bool isCurrentHeli =
+                        currentPhase == GamePhase.playing &&
+                        playerRole == PlayerRole.police &&
+                        heliIndex == currentHeliIndex;
+                    // このヘリが今ターン、既に行動済みかどうか（警察役=人間の操作順が
+                    // 自由に選べるようになったため、どれが行動済みか一目で分かるようにする）
+                    bool isActed =
+                        heliIndex != -1 &&
+                        helicopters[heliIndex].hasActedThisTurn;
 
-                // 移動候補（未確定）：タップしたがまだ「確定」ボタンを押していない交差点。
-                // ※以前は playerRole のチェックが抜けていたため、犯人役がビルを選んだ際の
-                //   pendingRow/pendingCol の値がたまたま近くの交差点の座標と一致すると、
-                //   無関係な交差点まで光ってしまうバグがあった。ここで役割チェックを追加して修正。
-                bool isPendingMove =
-                    playerRole == PlayerRole.police &&
-                    heliIndex == -1 &&
-                    !pendingIsSearch &&
-                    pendingRow == i &&
-                    pendingCol == j;
+                    // 空いている交差点が、選択中ヘリの移動先として有効（タテヨコ隣接）かどうか
+                    bool isValidMoveTarget = false;
+                    if (heliIndex == -1 &&
+                        currentPhase == GamePhase.playing &&
+                        playerRole == PlayerRole.police &&
+                        activeHeli != null) {
+                      int dr = (activeHeli.row - i).abs();
+                      int dc = (activeHeli.col - j).abs();
+                      isValidMoveTarget =
+                          (dr == 1 && dc == 0) || (dr == 0 && dc == 1);
+                    }
 
-                Color emptyRingColor;
-                double emptyRingWidth;
-                Color emptyFillColor;
-                if (isPendingMove) {
-                  emptyRingColor = Colors.deepOrange;
-                  emptyRingWidth = 3;
-                  emptyFillColor = Colors.orange.withOpacity(0.85);
-                } else if (isValidMoveTarget) {
-                  emptyRingColor = theme.pendingSearchColor;
-                  emptyRingWidth = 2.5;
-                  emptyFillColor = Colors.transparent;
-                } else {
-                  emptyRingColor = Colors.white.withOpacity(0.7);
-                  emptyRingWidth = 1.5;
-                  emptyFillColor = Colors.transparent;
-                }
+                    // 移動候補（未確定）：タップしたがまだ「確定」ボタンを押していない交差点。
+                    // ※以前は playerRole のチェックが抜けていたため、犯人役がビルを選んだ際の
+                    //   pendingRow/pendingCol の値がたまたま近くの交差点の座標と一致すると、
+                    //   無関係な交差点まで光ってしまうバグがあった。ここで役割チェックを追加して修正。
+                    bool isPendingMove =
+                        playerRole == PlayerRole.police &&
+                        heliIndex == -1 &&
+                        !pendingIsSearch &&
+                        pendingRow == i &&
+                        pendingCol == j;
 
-                return Positioned(
-                  top: top,
-                  left: left,
-                  child: GestureDetector(
-                    onTap: () => onIntersectionTap(i, j),
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Container(
-                          width: heliMarkerSize,
-                          height: heliMarkerSize,
-                          decoration: BoxDecoration(
-                            color: heliIndex != -1
-                                ? heliColors[(helicopters[heliIndex].id - 1) %
-                                          heliColors.length]
-                                      .withOpacity(isActed ? 0.6 : 1.0)
-                                : emptyFillColor,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: heliIndex != -1
-                                  ? (isCurrentHeli
-                                        ? Colors.orangeAccent
-                                        : Colors.white)
-                                  : emptyRingColor,
-                              width: heliIndex != -1
-                                  ? (isCurrentHeli ? 3.5 : 1.5)
-                                  : emptyRingWidth,
-                            ),
-                            boxShadow: heliIndex != -1
-                                ? const [
-                                    BoxShadow(
-                                      color: Colors.black38,
-                                      blurRadius: 3,
-                                      offset: Offset(0, 1),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Center(
-                            child: heliIndex != -1
-                                ? const Icon(
-                                    Icons.local_police,
-                                    color: Colors.white,
-                                    size: 22,
-                                  )
-                                : (isPendingMove
-                                      ? const Icon(
-                                          Icons.flag,
-                                          color: Colors.white,
-                                          size: 18,
-                                        )
-                                      : const SizedBox()),
-                          ),
-                        ),
-                        // 行動済みバッジ：警察役=人間がどのヘリを操作済みか一目で分かるように表示
-                        // ※以前は「二重チェック」アイコンを使っていたが、小さいバッジの中では
-                        // 　「バッジが2つ重なっている」ように見えるとのフィードバックを受け、
-                        // 　単独のチェックマークに変更。ビル側の「捜索済み」マーカー（赤茶の丸）とは
-                        // 　位置（右下／マス右上）と色（マスタードゴールド／赤茶）で区別している。
-                        if (isActed)
-                          Positioned(
-                            bottom: -2,
-                            right: -2,
-                            child: Container(
-                              padding: const EdgeInsets.all(2),
+                    Color emptyRingColor;
+                    double emptyRingWidth;
+                    Color emptyFillColor;
+                    if (isPendingMove) {
+                      emptyRingColor = Colors.deepOrange;
+                      emptyRingWidth = 3;
+                      emptyFillColor = Colors.orange.withOpacity(0.85);
+                    } else if (isValidMoveTarget) {
+                      emptyRingColor = theme.pendingSearchColor;
+                      emptyRingWidth = 2.5;
+                      emptyFillColor = Colors.transparent;
+                    } else {
+                      emptyRingColor = Colors.white.withOpacity(0.7);
+                      emptyRingWidth = 1.5;
+                      emptyFillColor = Colors.transparent;
+                    }
+
+                    return Positioned(
+                      top: top,
+                      left: left,
+                      child: GestureDetector(
+                        onTap: () => onIntersectionTap(i, j),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Container(
+                              width: heliMarkerSize,
+                              height: heliMarkerSize,
                               decoration: BoxDecoration(
-                                color: theme.pendingSearchColor,
+                                color: heliIndex != -1
+                                    ? heliColors[(helicopters[heliIndex].id -
+                                                  1) %
+                                              heliColors.length]
+                                          .withOpacity(isActed ? 0.6 : 1.0)
+                                    : emptyFillColor,
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: theme.inkColor,
-                                  width: 1,
+                                  color: heliIndex != -1
+                                      ? (isCurrentHeli
+                                            ? Colors.orangeAccent
+                                            : Colors.white)
+                                      : emptyRingColor,
+                                  width: heliIndex != -1
+                                      ? (isCurrentHeli ? 3.5 : 1.5)
+                                      : emptyRingWidth,
                                 ),
+                                boxShadow: heliIndex != -1
+                                    ? const [
+                                        BoxShadow(
+                                          color: Colors.black38,
+                                          blurRadius: 3,
+                                          offset: Offset(0, 1),
+                                        ),
+                                      ]
+                                    : null,
                               ),
-                              child: Icon(
-                                Icons.check,
-                                color: theme.inkColor,
-                                size: 11,
+                              child: Center(
+                                child: heliIndex != -1
+                                    ? const Icon(
+                                        Icons.local_police,
+                                        color: Colors.white,
+                                        size: 22,
+                                      )
+                                    : (isPendingMove
+                                          ? const Icon(
+                                              Icons.flag,
+                                              color: Colors.white,
+                                              size: 18,
+                                            )
+                                          : const SizedBox()),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
-                  ),
-                );
-              });
-            }).expand((element) => element),
-          ],
+                            // 行動済みバッジ：警察役=人間がどのヘリを操作済みか一目で分かるように表示
+                            // ※以前は「二重チェック」アイコンを使っていたが、小さいバッジの中では
+                            // 　「バッジが2つ重なっている」ように見えるとのフィードバックを受け、
+                            // 　単独のチェックマークに変更。ビル側の「捜索済み」マーカー（赤茶の丸）とは
+                            // 　位置（右下／マス右上）と色（マスタードゴールド／赤茶）で区別している。
+                            if (isActed)
+                              Positioned(
+                                bottom: -2,
+                                right: -2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    color: theme.pendingSearchColor,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: theme.inkColor,
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.check,
+                                    color: theme.inkColor,
+                                    size: 11,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  });
+                }).expand((element) => element),
+              ],
+            );
+          },
         ),
       ),
     );
