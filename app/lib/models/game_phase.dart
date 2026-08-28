@@ -1,4 +1,8 @@
 /// ゲームフェーズ定義
+/// title            : タイトル画面。アプリ起動直後、最初に表示されるフェーズ。
+///                    「ゲームを始める」でroleSelect（ModeSelectView）へ進む。
+///                    リスタート時（_startNewGame）はこのフェーズへは戻らず、
+///                    直接roleSelectへ戻る。
 /// roleSelect       : 役割選択画面
 /// setupHelicopters : 警察役=人間の場合、ヘリ3機を配置するフェーズ
 /// setupCarHuman    : 犯人役=人間の場合、車の初期隠れ場所を選ぶフェーズ
@@ -19,6 +23,7 @@
 /// difficultySelect     : 1人プレイのみ。役割選択の後、AI難易度を選ぶフェーズ。
 ///                        ローカル2人対戦ではAIを使わないため、この値には遷移しない。
 enum GamePhase {
+  title,
   roleSelect,
   difficultySelect,
   setupHelicopters,

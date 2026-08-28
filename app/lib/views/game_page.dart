@@ -15,6 +15,7 @@ import 'handoff_view.dart';
 import 'log_panel.dart';
 import 'mode_select_view.dart';
 import 'role_select_view.dart';
+import 'title_view.dart';
 
 class GamePage extends StatefulWidget {
   const GamePage({super.key});
@@ -72,7 +73,7 @@ class _GamePageState extends State<GamePage> {
 
   // 役割・フェーズ
   PlayerRole? playerRole;
-  GamePhase currentPhase = GamePhase.roleSelect;
+  GamePhase currentPhase = GamePhase.title;
 
   // ローカル2人対戦モード用に追加。
   // null        : まだ「1人プレイ／2人対戦」を選んでいない（ModeSelectViewを表示する）
@@ -139,6 +140,11 @@ class _GamePageState extends State<GamePage> {
 
   // アクションログ（複数件保持。先頭が最新）
   List<String> logHistory = [];
+  // ログ枠上部に大きめの文字で表示する「直近の注目結果」
+  // （捜索結果など）。null の間は何も表示しない。
+  // ゲーム終了時は gameResultMessage の方を優先して表示するため、
+  // ここでは「プレイ中の捜索結果」だけを保持すればよい。
+  String? latestHighlight;
   // 勝利メッセージ
   String gameResultMessage = '';
 
@@ -154,11 +160,18 @@ class _GamePageState extends State<GamePage> {
     _startNewGame();
   }
 
-  // ログにメッセージを追加（最新が先頭、古いものは自動的に消える）
-  void _pushLog(String message) {
+  // ログにメッセージを追加（最新が先頭、古いものは自動的に消える）。
+  // isHighlight: true を渡すと、通常のログ追加に加えて latestHighlight も
+  // 更新し、ログ枠上部の注目エリアに大きめの文字で表示される。
+  // 対象は「アクションを起こした結果」（捜索結果など）のみで、
+  // 移動・待機・選択確認・案内文には付けない。
+  void _pushLog(String message, {bool isHighlight = false}) {
     logHistory.insert(0, message);
     if (logHistory.length > maxLogEntries) {
       logHistory.removeRange(maxLogEntries, logHistory.length);
+    }
+    if (isHighlight) {
+      latestHighlight = message;
     }
   }
 
@@ -176,6 +189,7 @@ class _GamePageState extends State<GamePage> {
     searchingCol = -1;
     gameResultMessage = '';
     logHistory = [];
+    latestHighlight = null;
     _phaseAfterHandoff = GamePhase.playing;
     _pendingHandoffPhase = null;
 
@@ -311,25 +325,67 @@ class _GamePageState extends State<GamePage> {
         _pushLog(
           'ヘリ${helicopters.length}を配置しました。残りのヘリを配置してください（あと${3 - helicopters.length}機）。',
         );
-        return;
       }
+    });
 
-      if (isTwoPlayerMode == true) {
-        // 2人対戦：ここでは車を自動配置せず、確認オーバーレイを経て
-        // 犯人プレイヤーへ受け渡す。playerRoleの切り替えは、確認後に
-        // 実際にhandoff画面へ入る時点で行う（A案）。
+    if (helicopters.length < 3) return;
+
+    if (isTwoPlayerMode == true) {
+      // 2人対戦：確認ポップアップは挟まず、従来通りそのまま
+      // 確認オーバーレイ（HandoffView側）を経て犯人プレイヤーへ受け渡す。
+      setState(() {
         _phaseAfterHandoff = GamePhase.setupCarHuman;
         _pendingHandoffPhase = GamePhase.handoffToCriminal;
         _pushLog('警察のヘリ配置が完了しました。');
-        return;
-      }
+      });
+      return;
+    }
 
-      _placeCarRandomly();
-      currentPhase = GamePhase.playing;
-      currentHeliIndex = 0;
-      _pushLog('警察の配置完了。犯人はどこかのビルに身を隠しました。');
-      _pushLog('【第1ラウンド開始】ヘリ1の行動を選択してください。');
-    });
+    // 1人プレイのみ：3機目配置後に確認ポップアップを表示し、
+    // 「はい」が押されて初めてゲームを開始する。
+    _confirmHelicopterInitialPositions();
+  }
+
+  // 1人プレイ・警察役=人間の初期配置（ヘリ3機）確認ポップアップ。
+  // 「はい」が押されたら、これまで3機目配置と同時に行っていた後続処理
+  // （犯人の自動配置・ゲーム開始）をそのまま実行する。
+  // 「戻る」が押されたら、3機目として配置したヘリだけを取り消し、
+  // プレイヤーが別の交差点を選び直せるようにする。
+  void _confirmHelicopterInitialPositions() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('確認'),
+          content: const Text('ヘリコプターの配置はこれでよろしいですか？'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                setState(() {
+                  helicopters.removeLast();
+                });
+              },
+              child: const Text('戻る'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                setState(() {
+                  _placeCarRandomly();
+                  currentPhase = GamePhase.playing;
+                  currentHeliIndex = 0;
+                  _pushLog('警察の配置完了。犯人はどこかのビルに身を隠しました。');
+                  _pushLog('【第1ラウンド開始】ヘリ1の行動を選択してください。');
+                });
+              },
+              child: const Text('はい'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _placeCarRandomly() {
@@ -355,6 +411,37 @@ class _GamePageState extends State<GamePage> {
       }
     }
     helicopters = newHelis;
+  }
+
+  // 1人プレイ・犯人役=人間の初期配置（隠れ場所）確認ポップアップ。
+  // タップした時点では確定せず、「この位置でよろしいですか？」を表示し、
+  // 「はい」が押されて初めて既存の _selectCarInitialPositionHuman を呼ぶ。
+  // このダイアログは犯人役自身の画面にのみ表示され、他の情報（警察側の画面等）
+  // には一切影響しないため、犯人の位置が漏れる心配はない。
+  void _confirmCarInitialPosition(int r, int c) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('確認'),
+          content: const Text('この位置でよろしいですか？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('戻る'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _selectCarInitialPositionHuman(r, c);
+              },
+              child: const Text('はい'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _selectCarInitialPositionHuman(int r, int c) {
@@ -676,6 +763,7 @@ class _GamePageState extends State<GamePage> {
         revealedTraces[r][c] = true;
         _pushLog(
           '🔍 ヘリ${currentHeli.id}：ビル($r, $c)で【痕跡コマ】を発見！(第${traceGrid[r][c]}ターン通過)',
+          isHighlight: true,
         );
       });
       _onHelicopterActed();
@@ -683,7 +771,10 @@ class _GamePageState extends State<GamePage> {
       setState(() {
         searchingRow = -1;
         searchingCol = -1;
-        _pushLog('🔍 ヘリ${currentHeli.id}：ビル($r, $c)には何もいませんでした。');
+        _pushLog(
+          '🔍 ヘリ${currentHeli.id}：ビル($r, $c)には何もいませんでした。',
+          isHighlight: true,
+        );
       });
       _onHelicopterActed();
     }
@@ -872,13 +963,16 @@ class _GamePageState extends State<GamePage> {
         searchingRow = -1;
         searchingCol = -1;
         revealedTraces[r][c] = true;
-        _pushLog('🔍 ヘリ${heli.id}：ビル($r, $c)で痕跡を発見（第${traceGrid[r][c]}ターン通過）。');
+        _pushLog(
+          '🔍 ヘリ${heli.id}：ビル($r, $c)で痕跡を発見（第${traceGrid[r][c]}ターン通過）。',
+          isHighlight: true,
+        );
       });
     } else {
       setState(() {
         searchingRow = -1;
         searchingCol = -1;
-        _pushLog('🔍 ヘリ${heli.id}：ビル($r, $c)は空振りでした。');
+        _pushLog('🔍 ヘリ${heli.id}：ビル($r, $c)は空振りでした。', isHighlight: true);
       });
     }
   }
@@ -908,7 +1002,7 @@ class _GamePageState extends State<GamePage> {
   // 確定ボタンで実行する（誤操作防止のための確認ステップ）。
   void _onBuildingTap(int r, int c) {
     if (currentPhase == GamePhase.setupCarHuman) {
-      _selectCarInitialPositionHuman(r, c);
+      _confirmCarInitialPosition(r, c);
       return;
     }
 
@@ -1566,6 +1660,12 @@ class _GamePageState extends State<GamePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (currentPhase == GamePhase.title) {
+      return TitleView(
+        onStart: () => setState(() => currentPhase = GamePhase.roleSelect),
+      );
+    }
+
     if (currentPhase == GamePhase.roleSelect) {
       if (isTwoPlayerMode == null) {
         return ModeSelectView(onSelectMode: _choosePlayMode);
@@ -1680,6 +1780,11 @@ class _GamePageState extends State<GamePage> {
                               logHistory: logHistory,
                               width: logPanelWidth,
                               height: size,
+                              highlightMessage:
+                                  currentPhase == GamePhase.gameOver
+                                  ? gameResultMessage
+                                  : latestHighlight,
+                              isGameOver: currentPhase == GamePhase.gameOver,
                             ),
                             const SizedBox(width: 16),
                           ],
