@@ -587,7 +587,7 @@ class BoardWidget extends StatelessWidget {
                               child: GestureDetector(
                                 onTap: () => onBuildingTap(r, c),
                                 child: Container(
-                                  margin: EdgeInsets.all(innerSize * 0.02),
+                                  margin: EdgeInsets.all(innerSize * 0.024),
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       begin: Alignment.topCenter,

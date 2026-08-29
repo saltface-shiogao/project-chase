@@ -31,7 +31,7 @@ class _GamePageState extends State<GamePage> {
   // 盤面の表示サイズ（ピクセル）。ブラウザでの視認性を考慮したサイズ。
   // 道路（2車線）がビルの隙間にきちんと収まるよう、隙間を広げた分だけ
   // 盤面サイズも大きくしている（520→600）。
-  static const double boardPixelSize = 600;
+  static const double boardPixelSize = 650;
   static const double heliMarkerSize = 46;
 
   // ログとして画面に残す最大件数
@@ -177,6 +177,37 @@ class _GamePageState extends State<GamePage> {
     if (isHighlight) {
       latestHighlight = message;
     }
+  }
+
+  // 5×5のビル座標を、プレイヤーが直感的に把握できる表示へ変換する。
+  // 列: A〜E（左→右）、行: 1〜5（上→下）。
+  // 位置名は5×5を3×3のエリアに分け、
+  // 列 0〜1=左 / 2=中央 / 3〜4=右、
+  // 行 0〜1=上 / 2=中央 / 3〜4=下として判定する。
+  String _buildingPositionLabel(int row, int col) {
+    final column = String.fromCharCode('A'.codeUnitAt(0) + col);
+    final coordinate = '$column${row + 1}';
+
+    final horizontal = col <= 1
+        ? '左'
+        : col == 2
+        ? '中央'
+        : '右';
+    final vertical = row <= 1
+        ? '上'
+        : row == 2
+        ? '中央'
+        : '下';
+
+    final area = vertical == '中央' && horizontal == '中央'
+        ? '中央'
+        : vertical == '中央'
+        ? '$horizontal側'
+        : horizontal == '中央'
+        ? '$vertical側'
+        : '$vertical$horizontal';
+
+    return '$area（$coordinate）';
   }
 
   // 盤面状態を初期化する（役割 playerRole はここでは変更しない）
@@ -515,7 +546,7 @@ class _GamePageState extends State<GamePage> {
 
     setState(() {
       currentPhase = GamePhase.playing;
-      _pushLog('あなたはビル($r, $c)に身を隠しました。');
+      _pushLog('あなたは${_buildingPositionLabel(r, c)}に身を隠しました。');
       _pushLog('【第1ラウンド開始】警察が行動します…');
     });
 
@@ -806,8 +837,9 @@ class _GamePageState extends State<GamePage> {
         searchingRow = -1;
         searchingCol = -1;
         currentPhase = GamePhase.gameOver;
-        gameResultMessage = '🎉 逮捕！ビル($r, $c)で犯人の車を発見しました！警察の勝利！';
-        _pushLog('🎉 ビル($r, $c)で車を発見！逮捕成功！');
+        gameResultMessage =
+            '🎉 逮捕！${_buildingPositionLabel(r, c)}で犯人の車を発見しました！警察の勝利！';
+        _pushLog('🎉 ${_buildingPositionLabel(r, c)}で車を発見！逮捕成功！');
       });
     } else if (traceGrid[r][c] > 0) {
       setState(() {
@@ -815,7 +847,7 @@ class _GamePageState extends State<GamePage> {
         searchingCol = -1;
         revealedTraces[r][c] = true;
         _pushLog(
-          '🔍 ヘリ${currentHeli.id}：ビル($r, $c)で${_traceDiscoveryLabel(traceGrid[r][c])}！',
+          '🔍 ヘリ${currentHeli.id}：${_buildingPositionLabel(r, c)}で${_traceDiscoveryLabel(traceGrid[r][c])}！',
           isHighlight: true,
         );
       });
@@ -825,7 +857,7 @@ class _GamePageState extends State<GamePage> {
         searchingRow = -1;
         searchingCol = -1;
         _pushLog(
-          '🔍 ヘリ${currentHeli.id}：ビル($r, $c)には何もいませんでした。',
+          '🔍 ヘリ${currentHeli.id}：${_buildingPositionLabel(r, c)}には何もいませんでした。',
           isHighlight: true,
         );
       });
@@ -901,7 +933,7 @@ class _GamePageState extends State<GamePage> {
     }
 
     setState(() {
-      _pushLog('あなたはビル($r, $c)へ移動しました。');
+      _pushLog('あなたは${_buildingPositionLabel(r, c)}へ移動しました。');
       _pushLog('【第$currentRoundラウンド】警察が行動します…');
     });
 
@@ -1010,8 +1042,9 @@ class _GamePageState extends State<GamePage> {
         searchingCol = -1;
         currentPhase = GamePhase.gameOver;
         isPoliceTurnRunning = false;
-        gameResultMessage = '🚨 逮捕！警察がビル($r, $c)であなたの車を発見しました。警察の勝利です。';
-        _pushLog('🚨 ヘリ${heli.id}がビル($r, $c)であなたを発見！');
+        gameResultMessage =
+            '🚨 逮捕！警察が${_buildingPositionLabel(r, c)}であなたの車を発見しました。警察の勝利です。';
+        _pushLog('🚨 ヘリ${heli.id}が${_buildingPositionLabel(r, c)}であなたを発見！');
       });
     } else if (traceGrid[r][c] > 0) {
       setState(() {
@@ -1019,7 +1052,7 @@ class _GamePageState extends State<GamePage> {
         searchingCol = -1;
         revealedTraces[r][c] = true;
         _pushLog(
-          '🔍 ヘリ${heli.id}：ビル($r, $c)で${_traceDiscoveryLabel(traceGrid[r][c])}。',
+          '🔍 ヘリ${heli.id}：${_buildingPositionLabel(r, c)}で${_traceDiscoveryLabel(traceGrid[r][c])}。',
           isHighlight: true,
         );
       });
@@ -1027,7 +1060,10 @@ class _GamePageState extends State<GamePage> {
       setState(() {
         searchingRow = -1;
         searchingCol = -1;
-        _pushLog('🔍 ヘリ${heli.id}：ビル($r, $c)は空振りでした。', isHighlight: true);
+        _pushLog(
+          '🔍 ヘリ${heli.id}：${_buildingPositionLabel(r, c)}は空振りでした。',
+          isHighlight: true,
+        );
       });
     }
   }
