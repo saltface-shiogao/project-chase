@@ -55,7 +55,7 @@ class HandoffView extends StatelessWidget {
                 IconButton(
                   icon: Icon(
                     Icons.refresh,
-                    color: theme.appBarForeground.withOpacity(0.8),
+                    color: theme.appBarForeground.withValues(alpha: 0.8),
                   ),
                   tooltip: 'リセット（役割選択に戻る）',
                   onPressed: () => _confirmReset(context),
@@ -71,7 +71,7 @@ class HandoffView extends StatelessWidget {
             children: [
               Icon(
                 headlineIcon,
-                color: theme.appBarForeground.withOpacity(0.8),
+                color: theme.appBarForeground.withValues(alpha: 0.8),
                 size: 64,
               ),
               const SizedBox(height: 24),
@@ -89,7 +89,7 @@ class HandoffView extends StatelessWidget {
                 body,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: theme.appBarForeground.withOpacity(0.8),
+                  color: theme.appBarForeground.withValues(alpha: 0.8),
                   fontSize: 15,
                 ),
               ),

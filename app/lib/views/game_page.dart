@@ -156,7 +156,7 @@ class _GamePageState extends State<GamePage> {
   // ここに状態を持たせている。デフォルトはBoardWidget側と同じ
   // 新影風・2車線道路）。
   BuildingStyle _buildingStyle = BuildingStyle.shadowRelief;
-  RoadStyle _roadStyle = RoadStyle.twoLane;
+  final RoadStyle _roadStyle = RoadStyle.twoLane;
 
   @override
   void initState() {
@@ -389,7 +389,8 @@ class _GamePageState extends State<GamePage> {
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 setState(() {
-                  helicopters.removeLast();
+                  Helicopter.resetInitialSetup(helicopters);
+                  _pushLog('警察側のヘリ配置をやり直します。ヘリ1から再配置してください。');
                 });
               },
               child: const Text('戻る'),
@@ -575,7 +576,7 @@ class _GamePageState extends State<GamePage> {
 
     return Positioned.fill(
       child: Container(
-        color: Colors.black.withOpacity(0.55),
+        color: Colors.black.withValues(alpha: 0.55),
         child: Center(
           child: Container(
             margin: const EdgeInsets.all(32),
@@ -726,8 +727,9 @@ class _GamePageState extends State<GamePage> {
   }
 
   void _moveHelicopter(int targetRow, int targetCol) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) {
       return;
+    }
 
     final currentHeli = helicopters[currentHeliIndex];
 
@@ -763,8 +765,9 @@ class _GamePageState extends State<GamePage> {
   }
 
   Future<void> _searchBuilding(int r, int c) async {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) {
       return;
+    }
     if (searchingRow != -1) return; // 演出中は多重実行を防止
 
     final currentHeli = helicopters[currentHeliIndex];
@@ -812,7 +815,7 @@ class _GamePageState extends State<GamePage> {
         searchingCol = -1;
         revealedTraces[r][c] = true;
         _pushLog(
-          '🔍 ヘリ${currentHeli.id}：ビル($r, $c)で【痕跡コマ】を発見！(第${traceGrid[r][c]}ターン通過)',
+          '🔍 ヘリ${currentHeli.id}：ビル($r, $c)で${_traceDiscoveryLabel(traceGrid[r][c])}！',
           isHighlight: true,
         );
       });
@@ -837,8 +840,10 @@ class _GamePageState extends State<GamePage> {
   // 妥当な移動先であれば「候補」として保持するだけに留める
   // （実行は _confirmPendingAction → _executeCriminalMove で行う）。
   void _validateAndStageCriminalMove(int r, int c) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.criminal)
+    if (currentPhase != GamePhase.playing ||
+        playerRole != PlayerRole.criminal) {
       return;
+    }
     if (isPoliceTurnRunning) return;
 
     // 既に候補として選択中のビルを、もう一度タップした場合は
@@ -1014,7 +1019,7 @@ class _GamePageState extends State<GamePage> {
         searchingCol = -1;
         revealedTraces[r][c] = true;
         _pushLog(
-          '🔍 ヘリ${heli.id}：ビル($r, $c)で痕跡を発見（第${traceGrid[r][c]}ターン通過）。',
+          '🔍 ヘリ${heli.id}：ビル($r, $c)で${_traceDiscoveryLabel(traceGrid[r][c])}。',
           isHighlight: true,
         );
       });
@@ -1025,6 +1030,12 @@ class _GamePageState extends State<GamePage> {
         _pushLog('🔍 ヘリ${heli.id}：ビル($r, $c)は空振りでした。', isHighlight: true);
       });
     }
+  }
+
+  String _traceDiscoveryLabel(int traceRound) {
+    if (traceRound == 1) return '1ターン目の痕跡をみつけた';
+    if (traceRound == 6) return '6ターン目の痕跡をみつけた';
+    return '痕跡をみつけた';
   }
 
   // 痕跡の色を取得 (1ターン目=黄, 6ターン目=赤, その他=グレー)
@@ -1109,8 +1120,9 @@ class _GamePageState extends State<GamePage> {
       return;
     }
 
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) {
       return;
+    }
 
     // タップした交差点にヘリがいる場合は、そのヘリを「これから操作するヘリ」として
     // 選択する（移動として扱わない）。プレイヤーは3機を好きな順番で操作できる。
@@ -1163,8 +1175,9 @@ class _GamePageState extends State<GamePage> {
   // 既に行動済みのヘリは選択できない（その旨をメッセージで案内する）。
   // ヘリを切り替えた場合、直前に選んでいた候補（別のヘリのもの）は破棄する。
   void _selectHelicopterToOperate(int index) {
-    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police)
+    if (currentPhase != GamePhase.playing || playerRole != PlayerRole.police) {
       return;
+    }
 
     final target = helicopters[index];
 
@@ -1553,7 +1566,7 @@ class _GamePageState extends State<GamePage> {
           const SizedBox(height: 8),
           _buildingStyleSegmentedControl(theme),
           const SizedBox(height: 16),
-          Divider(color: theme.gridLine.withOpacity(0.5), height: 1),
+          Divider(color: theme.gridLine.withValues(alpha: 0.5), height: 1),
           const SizedBox(height: 12),
           Text(
             '痕跡の色',
@@ -1685,7 +1698,7 @@ class _GamePageState extends State<GamePage> {
           child: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: theme.scaffoldBackground.withOpacity(0.96),
+              color: theme.scaffoldBackground.withValues(alpha: 0.96),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
@@ -1806,8 +1819,8 @@ class _GamePageState extends State<GamePage> {
                 width: double.infinity,
                 height: currentPhase == GamePhase.gameOver ? 120 : 56,
                 color: currentPhase == GamePhase.gameOver
-                    ? theme.pendingSearchColor.withOpacity(0.25)
-                    : theme.buildingHighlight.withOpacity(0.4),
+                    ? theme.pendingSearchColor.withValues(alpha: 0.25)
+                    : theme.buildingHighlight.withValues(alpha: 0.4),
                 padding: const EdgeInsets.symmetric(
                   vertical: 12,
                   horizontal: 16,

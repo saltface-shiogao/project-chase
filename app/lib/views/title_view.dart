@@ -72,10 +72,7 @@ class TitleView extends StatelessWidget {
             letterSpacing: 1.2,
             color: Colors.white,
             shadows: [
-              Shadow(
-                color: Color(0xFFC9A227),
-                offset: Offset(0, 2),
-              ),
+              Shadow(color: Color(0xFFC9A227), offset: Offset(0, 2)),
               Shadow(
                 color: Color(0x66140F1D),
                 blurRadius: 10,
@@ -106,7 +103,7 @@ class TitleView extends StatelessWidget {
               color: const Color(0xFFF4EFE1),
               shadows: [
                 Shadow(
-                  color: Colors.black.withOpacity(0.4),
+                  color: Colors.black.withValues(alpha: 0.4),
                   blurRadius: 6,
                   offset: const Offset(0, 1),
                 ),
@@ -186,7 +183,10 @@ class TitleView extends StatelessWidget {
           ),
           child: const Text(
             '遊び方を見る',
-            style: TextStyle(fontSize: 13, decoration: TextDecoration.underline),
+            style: TextStyle(
+              fontSize: 13,
+              decoration: TextDecoration.underline,
+            ),
           ),
         ),
       ],
@@ -194,9 +194,9 @@ class TitleView extends StatelessWidget {
   }
 
   void _openHowToPlay(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const HowToPlayView()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const HowToPlayView()));
   }
 }
 
@@ -215,7 +215,7 @@ class _Building extends StatelessWidget {
         color: const Color(0xFF2A1F42),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFFFC882).withOpacity(0.55),
+            color: const Color(0xFFFFC882).withValues(alpha: 0.55),
             blurRadius: 14,
             spreadRadius: -2,
             offset: const Offset(0, -8),
@@ -259,9 +259,13 @@ class _RaysPainter extends CustomPainter {
     final Offset origin = Offset(size.width / 2, size.height);
     final double maxRadius = size.height * 2.2 + size.width / 2;
     final Paint paint = Paint()
-      ..color = const Color(0xFFFFDCAF).withOpacity(0.32);
+      ..color = const Color(0xFFFFDCAF).withValues(alpha: 0.32);
 
-    for (double a = _startDeg; a < _startDeg + _sweepRangeDeg; a += _periodDeg) {
+    for (
+      double a = _startDeg;
+      a < _startDeg + _sweepRangeDeg;
+      a += _periodDeg
+    ) {
       final double startRad = a * pi / 180;
       final double sweepRad = _wedgeDeg * pi / 180;
       final Path path = Path()

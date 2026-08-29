@@ -106,7 +106,7 @@ class LogPanel extends StatelessWidget {
                         fontWeight: index == 0
                             ? FontWeight.bold
                             : FontWeight.normal,
-                        color: Colors.black87.withOpacity(opacity),
+                        color: Colors.black87.withValues(alpha: opacity),
                       ),
                     ),
                   );

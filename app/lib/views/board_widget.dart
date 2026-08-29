@@ -123,7 +123,7 @@ class _RoadNetworkPainter extends CustomPainter {
 
     if (roadStyle == RoadStyle.thin) {
       final linePaint = Paint()
-        ..color = lineColor.withOpacity(0.9)
+        ..color = lineColor.withValues(alpha: 0.9)
         ..strokeWidth = 5
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke;
@@ -138,7 +138,10 @@ class _RoadNetworkPainter extends CustomPainter {
           );
         }
       }
-      canvas.drawPath(nodesPath, Paint()..color = lineColor.withOpacity(0.9));
+      canvas.drawPath(
+        nodesPath,
+        Paint()..color = lineColor.withValues(alpha: 0.9),
+      );
       return;
     }
 
@@ -163,7 +166,7 @@ class _RoadNetworkPainter extends CustomPainter {
 
     // レーンライン（両端）
     final edgePaint = Paint()
-      ..color = Colors.white.withOpacity(0.5)
+      ..color = Colors.white.withValues(alpha: 0.5)
       ..strokeWidth = 0.8
       ..style = PaintingStyle.stroke;
     canvas.drawPath(edgePathA!, edgePaint);
@@ -640,8 +643,8 @@ class BoardWidget extends StatelessWidget {
                                             heightFactor: 0.16,
                                             child: Container(
                                               decoration: BoxDecoration(
-                                                color: Colors.white.withOpacity(
-                                                  0.16,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.16,
                                                 ),
                                                 borderRadius:
                                                     const BorderRadius.vertical(
@@ -666,7 +669,7 @@ class BoardWidget extends StatelessWidget {
                                             child: CustomPaint(
                                               painter: _WindowMullionPainter(
                                                 lineColor: Colors.white
-                                                    .withOpacity(0.14),
+                                                    .withValues(alpha: 0.14),
                                               ),
                                             ),
                                           ),
@@ -702,7 +705,7 @@ class BoardWidget extends StatelessWidget {
                                             child: CustomPaint(
                                               painter: _RoofPatternPainter(
                                                 lineColor: theme.buildingShadow
-                                                    .withOpacity(0.4),
+                                                    .withValues(alpha: 0.4),
                                               ),
                                             ),
                                           ),
@@ -717,7 +720,7 @@ class BoardWidget extends StatelessWidget {
                                             : Icon(
                                                 Icons.location_city,
                                                 color: theme.buildingShadow
-                                                    .withOpacity(0.5),
+                                                    .withValues(alpha: 0.5),
                                                 size: 30,
                                               ),
                                       ),
@@ -829,7 +832,7 @@ class BoardWidget extends StatelessWidget {
                                             padding: const EdgeInsets.all(2),
                                             decoration: BoxDecoration(
                                               color: theme.searchableZoneColor
-                                                  .withOpacity(0.9),
+                                                  .withValues(alpha: 0.9),
                                               shape: BoxShape.circle,
                                             ),
                                             child: const Icon(
@@ -977,13 +980,13 @@ class BoardWidget extends StatelessWidget {
                     if (isPendingMove) {
                       emptyRingColor = Colors.deepOrange;
                       emptyRingWidth = 3;
-                      emptyFillColor = Colors.orange.withOpacity(0.85);
+                      emptyFillColor = Colors.orange.withValues(alpha: 0.85);
                     } else if (isValidMoveTarget) {
                       emptyRingColor = theme.pendingSearchColor;
                       emptyRingWidth = 2.5;
                       emptyFillColor = Colors.transparent;
                     } else {
-                      emptyRingColor = Colors.white.withOpacity(0.7);
+                      emptyRingColor = Colors.white.withValues(alpha: 0.7);
                       emptyRingWidth = 1.5;
                       emptyFillColor = Colors.transparent;
                     }
@@ -1004,7 +1007,9 @@ class BoardWidget extends StatelessWidget {
                                     ? heliColors[(helicopters[heliIndex].id -
                                                   1) %
                                               heliColors.length]
-                                          .withOpacity(isActed ? 0.6 : 1.0)
+                                          .withValues(
+                                            alpha: isActed ? 0.6 : 1.0,
+                                          )
                                     : emptyFillColor,
                                 shape: BoxShape.circle,
                                 border: Border.all(

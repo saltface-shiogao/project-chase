@@ -25,6 +25,18 @@ void main() {
     expect(heli.hasActedThisTurn, isFalse);
   });
 
+  test('Helicopter resetInitialSetup clears configured placements', () {
+    final helis = [
+      Helicopter(1, 0, 0),
+      Helicopter(2, 0, 1),
+      Helicopter(3, 0, 2),
+    ];
+
+    Helicopter.resetInitialSetup(helis);
+
+    expect(helis, isEmpty);
+  });
+
   test('PoliceAiAction model test', () {
     final heli = Helicopter(1, 1, 1);
     // PoliceAiAction.search は (targetRow, targetCol) の2引数のみを受け取る

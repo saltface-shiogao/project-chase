@@ -110,7 +110,7 @@ class HowToPlayView extends StatelessWidget {
               '※このページは下書きです。内容は今後修正される予定です。',
               style: TextStyle(
                 fontSize: 12,
-                color: theme.inkColor.withOpacity(0.6),
+                color: theme.inkColor.withValues(alpha: 0.6),
                 fontStyle: FontStyle.italic,
               ),
             ),
@@ -126,7 +126,11 @@ class _Section extends StatelessWidget {
   final String title;
   final String body;
 
-  const _Section({required this.theme, required this.title, required this.body});
+  const _Section({
+    required this.theme,
+    required this.title,
+    required this.body,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -156,11 +160,7 @@ class _Section extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             body,
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.6,
-              color: theme.inkColor,
-            ),
+            style: TextStyle(fontSize: 14, height: 1.6, color: theme.inkColor),
           ),
         ],
       ),
