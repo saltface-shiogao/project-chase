@@ -15,11 +15,13 @@ import '../models/player_role.dart';
 class RoleSelectView extends StatelessWidget {
   final void Function(PlayerRole role) onSelectRole;
   final bool isTwoPlayerMode;
+  final VoidCallback? onBack;
 
   const RoleSelectView({
     super.key,
     required this.onSelectRole,
     this.isTwoPlayerMode = false,
+    this.onBack,
   });
 
   @override
@@ -45,6 +47,17 @@ class RoleSelectView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (onBack != null) ...[
+                TextButton.icon(
+                  onPressed: onBack,
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('遊び方選択に戻る'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: theme.appBarBackground,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               Text(
                 '役割を選んでください',
                 style: TextStyle(

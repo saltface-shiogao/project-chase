@@ -18,8 +18,13 @@ enum PlayMode { singlePlayer, localTwoPlayer }
 
 class ModeSelectView extends StatelessWidget {
   final void Function(PlayMode mode) onSelectMode;
+  final VoidCallback onBack;
 
-  const ModeSelectView({super.key, required this.onSelectMode});
+  const ModeSelectView({
+    super.key,
+    required this.onSelectMode,
+    required this.onBack,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +42,15 @@ class ModeSelectView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              TextButton.icon(
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('タイトルに戻る'),
+                style: TextButton.styleFrom(
+                  foregroundColor: theme.appBarBackground,
+                ),
+              ),
+              const SizedBox(height: 8),
               Text(
                 '遊び方を選んでください',
                 style: TextStyle(

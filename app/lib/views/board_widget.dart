@@ -328,6 +328,9 @@ class BoardWidget extends StatelessWidget {
   final int pendingCol;
   // true: pendingRow/pendingColはビル（捜索候補）／false: 交差点（移動候補）
   final bool pendingIsSearch;
+  // 犯人役の初期車配置で確認ダイアログを表示している間の候補位置。
+  final int pendingCarRow;
+  final int pendingCarCol;
   final Color Function(int roundNumber) getTraceColor;
   final void Function(int r, int c) onBuildingTap;
   final void Function(int i, int j) onIntersectionTap;
@@ -360,6 +363,8 @@ class BoardWidget extends StatelessWidget {
     required this.pendingRow,
     required this.pendingCol,
     required this.pendingIsSearch,
+    this.pendingCarRow = -1,
+    this.pendingCarCol = -1,
     required this.getTraceColor,
     required this.onBuildingTap,
     required this.onIntersectionTap,
@@ -490,6 +495,15 @@ class BoardWidget extends StatelessWidget {
                                 pendingRow == r &&
                                 pendingCol == c;
 
+                            // 犯人役の初期車配置で確認中のビル。
+                            // 通常の pendingAction とは別状態なので、ダイアログ中でも
+                            // 選択位置だけを安全にハイライトできる。
+                            bool isPendingCarInitialPosition =
+                                currentPhase == GamePhase.setupCarHuman &&
+                                playerRole == PlayerRole.criminal &&
+                                pendingCarRow == r &&
+                                pendingCarCol == c;
+
                             // 選択中ヘリの捜索可能範囲（周囲4マス）。モード切替は廃止したため、
                             // ヘリが選択されていて未行動であれば常にガイドとして表示する。
                             bool isSearchableArea =
@@ -529,6 +543,8 @@ class BoardWidget extends StatelessWidget {
                             Color cellColor;
                             if (showCar) {
                               cellColor = theme.carColor;
+                            } else if (isPendingCarInitialPosition) {
+                              cellColor = Colors.deepOrange;
                             } else if (isPendingSearch) {
                               cellColor = theme.pendingSearchColor;
                             } else if (isPendingCriminalMove) {
@@ -555,6 +571,7 @@ class BoardWidget extends StatelessWidget {
                             final bool isSpecialState =
                                 isPendingSearch ||
                                 isPendingCriminalMove ||
+                                isPendingCarInitialPosition ||
                                 isSearchableArea ||
                                 isMoveCandidate;
                             final Color topShade = Color.lerp(
@@ -580,7 +597,12 @@ class BoardWidget extends StatelessWidget {
                                           ? 5
                                           : 6,
                                     ),
-                                    border: isPendingSearch
+                                    border: isPendingCarInitialPosition
+                                        ? Border.all(
+                                            color: Colors.deepOrange,
+                                            width: 3,
+                                          )
+                                        : isPendingSearch
                                         ? Border.all(
                                             color: theme.pendingSearchColor,
                                             width: 3,

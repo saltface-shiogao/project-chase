@@ -133,6 +133,10 @@ class _GamePageState extends State<GamePage> {
   int pendingRow = -1;
   int pendingCol = -1;
   bool pendingIsSearch = false; // true: ビル（捜索候補）／false: 交差点（移動候補）
+  // 犯人役の初期車配置で、確認ダイアログを表示している間だけ使う候補座標。
+  // 通常の pendingRow/pendingCol とは分離し、他の操作状態に影響しないようにする。
+  int pendingCarRow = -1;
+  int pendingCarCol = -1;
   bool get _hasPendingAction => pendingRow != -1 && pendingCol != -1;
 
   // 警察AIが行動中かどうか（犯人役=人間の時、この間は操作をブロックする）
@@ -157,7 +161,7 @@ class _GamePageState extends State<GamePage> {
   @override
   void initState() {
     super.initState();
-    _startNewGame();
+    _resetBoardState();
   }
 
   // ログにメッセージを追加（最新が先頭、古いものは自動的に消える）。
@@ -184,6 +188,8 @@ class _GamePageState extends State<GamePage> {
     pendingRow = -1;
     pendingCol = -1;
     pendingIsSearch = false;
+    pendingCarRow = -1;
+    pendingCarCol = -1;
     isPoliceTurnRunning = false;
     searchingRow = -1;
     searchingCol = -1;
@@ -212,6 +218,25 @@ class _GamePageState extends State<GamePage> {
       currentPhase = GamePhase.roleSelect;
       playerRole = null;
       isTwoPlayerMode = null;
+      _resetBoardState();
+    });
+  }
+
+  // モード選択画面へ戻る（役割選択からの戻る用）。
+  void _backToModeSelect() {
+    setState(() {
+      currentPhase = GamePhase.roleSelect;
+      playerRole = null;
+      isTwoPlayerMode = null;
+      _resetBoardState();
+    });
+  }
+
+  // 難易度選択から役割選択へ戻る。
+  void _backToRoleSelect() {
+    setState(() {
+      currentPhase = GamePhase.roleSelect;
+      playerRole = null;
       _resetBoardState();
     });
   }
@@ -419,6 +444,13 @@ class _GamePageState extends State<GamePage> {
   // このダイアログは犯人役自身の画面にのみ表示され、他の情報（警察側の画面等）
   // には一切影響しないため、犯人の位置が漏れる心配はない。
   void _confirmCarInitialPosition(int r, int c) {
+    // ダイアログを閉じるまで盤面上に選択位置を残し、
+    // 「どのビルを選んだのか」を確認できるようにする。
+    setState(() {
+      pendingCarRow = r;
+      pendingCarCol = c;
+    });
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -428,7 +460,15 @@ class _GamePageState extends State<GamePage> {
           content: const Text('この位置でよろしいですか？'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                if (mounted) {
+                  setState(() {
+                    pendingCarRow = -1;
+                    pendingCarCol = -1;
+                  });
+                }
+              },
               child: const Text('戻る'),
             ),
             ElevatedButton(
@@ -441,7 +481,15 @@ class _GamePageState extends State<GamePage> {
           ],
         );
       },
-    );
+    ).then((_) {
+      // ダイアログが予期せず閉じた場合にも候補表示を残さない。
+      if (mounted && pendingCarRow == r && pendingCarCol == c) {
+        setState(() {
+          pendingCarRow = -1;
+          pendingCarCol = -1;
+        });
+      }
+    });
   }
 
   void _selectCarInitialPositionHuman(int r, int c) {
@@ -451,6 +499,8 @@ class _GamePageState extends State<GamePage> {
       carRow = r;
       carCol = c;
       traceGrid[r][c] = 1;
+      pendingCarRow = -1;
+      pendingCarCol = -1;
     });
 
     if (isTwoPlayerMode == true) {
@@ -1602,6 +1652,8 @@ class _GamePageState extends State<GamePage> {
         pendingRow: pendingRow,
         pendingCol: pendingCol,
         pendingIsSearch: pendingIsSearch,
+        pendingCarRow: pendingCarRow,
+        pendingCarCol: pendingCarCol,
         getTraceColor: _getTraceColor,
         onBuildingTap: _onBuildingTap,
         onIntersectionTap: _onIntersectionTap,
@@ -1668,11 +1720,22 @@ class _GamePageState extends State<GamePage> {
 
     if (currentPhase == GamePhase.roleSelect) {
       if (isTwoPlayerMode == null) {
-        return ModeSelectView(onSelectMode: _choosePlayMode);
+        return ModeSelectView(
+          onSelectMode: _choosePlayMode,
+          onBack: () {
+            setState(() {
+              currentPhase = GamePhase.title;
+              playerRole = null;
+              isTwoPlayerMode = null;
+              _resetBoardState();
+            });
+          },
+        );
       }
       return RoleSelectView(
         onSelectRole: _chooseRole,
         isTwoPlayerMode: isTwoPlayerMode!,
+        onBack: _backToModeSelect,
       );
     }
 
@@ -1681,6 +1744,7 @@ class _GamePageState extends State<GamePage> {
       return DifficultySelectView(
         onSelectDifficulty: _chooseDifficulty,
         initialDifficulty: aiDifficulty,
+        onBack: _backToRoleSelect,
       );
     }
 
@@ -1707,12 +1771,23 @@ class _GamePageState extends State<GamePage> {
         Scaffold(
           backgroundColor: theme.scaffoldBackground,
           appBar: AppBar(
-            title: Text(
-              playerRole == PlayerRole.police
-                  ? 'City Chase（警察役）'
-                  : playerRole == PlayerRole.criminal
-                  ? 'City Chase（犯人役）'
-                  : 'City Chase',
+            title: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: playerRole == PlayerRole.police
+                        ? 'City Chase（警察役）'
+                        : playerRole == PlayerRole.criminal
+                        ? 'City Chase（犯人役）'
+                        : 'City Chase',
+                  ),
+                  if (isTwoPlayerMode != null)
+                    TextSpan(
+                      text: isTwoPlayerMode! ? '  2人対戦モード' : '  1人プレイモード',
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                ],
+              ),
             ),
             backgroundColor: theme.appBarBackground,
             foregroundColor: theme.appBarForeground,

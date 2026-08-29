@@ -14,11 +14,13 @@ import '../models/ai_difficulty.dart';
 class DifficultySelectView extends StatefulWidget {
   final void Function(AiDifficulty difficulty) onSelectDifficulty;
   final AiDifficulty initialDifficulty;
+  final VoidCallback? onBack;
 
   const DifficultySelectView({
     super.key,
     required this.onSelectDifficulty,
     this.initialDifficulty = AiDifficulty.normal,
+    this.onBack,
   });
 
   @override
@@ -44,6 +46,17 @@ class _DifficultySelectViewState extends State<DifficultySelectView> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (widget.onBack != null) ...[
+                TextButton.icon(
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('役割選択に戻る'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: theme.appBarBackground,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               Text(
                 'AIの難易度を選んでください',
                 style: TextStyle(
