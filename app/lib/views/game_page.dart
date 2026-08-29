@@ -35,7 +35,7 @@ class _GamePageState extends State<GamePage> {
   static const double heliMarkerSize = 46;
 
   // ログとして画面に残す最大件数
-  static const int maxLogEntries = 6;
+  static const int maxLogEntries = 500;
 
   // ==== PCブラウザ版デスクトップレイアウト用の定数 ====
   // このセクションの値は「今回の画面配置（PC向け）」専用の見た目調整値であり、
@@ -205,7 +205,7 @@ class _GamePageState extends State<GamePage> {
         ? '$horizontal側'
         : horizontal == '中央'
         ? '$vertical側'
-        : '$vertical$horizontal';
+        : '$horizontal$vertical';
 
     return '$area（$coordinate）';
   }
