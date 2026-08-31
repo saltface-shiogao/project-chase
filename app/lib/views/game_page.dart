@@ -70,6 +70,8 @@ class _GamePageState extends State<GamePage> {
   static const double sidePanelWidth = 220;
   static const double _wideLayoutMinWidth =
       32 + logPanelWidth + 16 + boardPixelSize + 16 + sidePanelWidth;
+  // ログパネルが非表示になる狭い画面で、直近ログ1件を常時表示するミニバーの高さ。
+  static const double miniLogBarHeight = 40;
 
   // 役割・フェーズ
   PlayerRole? playerRole;
@@ -1459,21 +1461,10 @@ class _GamePageState extends State<GamePage> {
   // ※道路は「2車線」で確定したため、切り替えボタンは廃止し _roadStyle は
   //   常に RoadStyle.twoLane 固定（フィールド宣言側で初期値のまま変更していない）。
 
-  // 「凡例」と「デザイン切替」を横並びにした行（凡例が左、切替が右）。
-  // 画面が狭い場合はWrapで自動的に折り返す。
-  Widget _buildDesignControlsRow(AppTheme theme) {
-    return SizedBox(
-      width: boardPixelSize,
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 14,
-        runSpacing: 8,
-        children: [_buildTraceLegend(theme), _buildStyleToggleRow(theme)],
-      ),
-    );
-  }
-
+  // 盤面デザイン（ビルの見た目）を切り替えるボックス。
+  // 痕跡凡例（_buildTraceLegendPlate）とは完全に独立しており、互いを参照しない。
+  // 将来この切替UIを設定/オプション画面へ移す際は、この関数の呼び出し箇所を
+  // 差し替えるだけでよく、凡例側のコードには一切影響しない。
   Widget _buildStyleToggleRow(AppTheme theme) {
     // 「これは切り替えボタンです」と一目で伝わるよう、枠で囲み、
     // アイコン＋ラベルの見出しを付けた上で、選択中／未選択がはっきり
@@ -1485,20 +1476,26 @@ class _GamePageState extends State<GamePage> {
         border: Border.all(color: theme.gridLine, width: 1.2),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 6,
+        runSpacing: 6,
         children: [
-          Icon(Icons.swap_horiz, size: 14, color: theme.inkColor),
-          const SizedBox(width: 4),
-          Text(
-            'ビルデザイン切替：',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: theme.inkColor,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.swap_horiz, size: 14, color: theme.inkColor),
+              const SizedBox(width: 4),
+              Text(
+                'ビルデザイン切替：',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: theme.inkColor,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 6),
           _buildingStyleSegmentedControl(theme),
         ],
       ),
@@ -1570,109 +1567,172 @@ class _GamePageState extends State<GamePage> {
     );
   }
 
-  // 画面が広い時だけ使う、盤面の右側に置くパネル。
-  // 横幅が狭いので、デザイン切替（セグメントコントロール）と凡例を
-  // 縦に積む構成にしている。中身の判定ロジックは既存のものをそのまま再利用。
-  Widget _buildSidePanelDesignControls(AppTheme theme) {
+  // ============ 直近ログ1件のミニ表示（狭い画面向け・表示専用） ============
+  //
+  // ログパネル（LogPanel）は幅760px未満で非表示になるため、狭い画面では
+  // 「捜索結果」や「ラウンド開始の案内」がどこにも表示されなくなってしまう。
+  // これらはどちらも _pushLog でログに積まれる情報なので、
+  // 「ログの最新1件をそのまま出す」という単純なルールで両方カバーする。
+  // ログ本体・ログ配列（logHistory）には一切手を加えない、表示専用の追加。
+  // ゲーム終了時はここでは表示しない（勝敗バナー側が既にその役目を持っており、
+  // 二重表示を避けるため）。
+  Widget _buildLatestLogMiniBar(AppTheme theme) {
+    final String latest = logHistory.isNotEmpty ? logHistory.first : '';
     return Container(
-      padding: const EdgeInsets.all(12),
+      width: double.infinity,
+      height: miniLogBarHeight,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(left: 12),
       decoration: BoxDecoration(
-        color: theme.scaffoldBackground,
-        border: Border.all(color: theme.gridLine, width: 1.2),
-        borderRadius: BorderRadius.circular(8),
+        color: theme.gridLine,
+        borderRadius: BorderRadius.circular(6),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(Icons.swap_horiz, size: 14, color: theme.inkColor),
-              const SizedBox(width: 4),
-              Text(
-                'デザイン切替',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: theme.inkColor,
-                ),
+          Expanded(
+            child: Text(
+              latest,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: theme.scaffoldBackground,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _buildingStyleSegmentedControl(theme),
-          const SizedBox(height: 16),
-          Divider(color: theme.gridLine.withValues(alpha: 0.5), height: 1),
-          const SizedBox(height: 12),
-          Text(
-            '痕跡の色',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: theme.inkColor,
             ),
           ),
-          const SizedBox(height: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final item in _traceLegendItems(theme))
-                Padding(padding: const EdgeInsets.only(bottom: 6), child: item),
-            ],
+          // 全ログ履歴をボトムシートで表示するボタン。
+          // 表示には既存のLogPanelをそのまま再利用（見た目・ロジックの二重管理を避ける）。
+          IconButton(
+            icon: Icon(
+              Icons.history,
+              color: theme.scaffoldBackground,
+              size: 18,
+            ),
+            tooltip: 'ログを見る',
+            onPressed: () => _showFullLogSheet(theme),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
           ),
         ],
       ),
     );
   }
 
+  // 全ログ履歴をボトムシートで表示する。既存のLogPanelをそのまま使う。
+  void _showFullLogSheet(AppTheme theme) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: theme.scaffoldBackground,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(12),
+          child: LogPanel(
+            logHistory: logHistory,
+            height: MediaQuery.of(context).size.height * 0.6,
+            highlightMessage: currentPhase == GamePhase.gameOver
+                ? gameResultMessage
+                : latestHighlight,
+            isGameOver: currentPhase == GamePhase.gameOver,
+          ),
+        );
+      },
+    );
+  }
+
   // ============ 痕跡の色分け凡例（表示専用・ロジックなし） ============
   //
   // 痕跡マーカーは「1ターン目＝黄」「6ターン目＝赤」「それ以外＝グレー」で
-  // 色分けしている（_getTraceColor参照）。盤面上では1・6以外の具体的な
-  // ターン数はプレイ中わからないようにしているため、色の意味だけでも
-  // 一目でわかるよう、盤面の外に小さな凡例を出す。
-  // ※「トグルと並べたときに凡例だと分かりにくい」というフィードバックを受け、
-  // 　枠で囲んで独立したパーツだと分かるようにしている。
+  // 色分けしている。色の実体は _getTraceColor に一本化し、ここではその値を
+  // そのまま参照する（凡例側で色を決め打ちしない）ことで、盤面の実際の色と
+  // 凡例が食い違う事故を防いでいる。
+  //
+  // デザイン切替UI（_buildStyleToggleRow）とは完全に独立しており、
+  // 互いに参照し合わない。将来デザイン切替を設定/オプション画面に移しても、
+  // このプレートのコードは変更不要。
 
-  // 凡例1項目分（色の丸＋ラベル）。横並び・縦並びどちらの凡例からも使う。
-  Widget _traceLegendSwatch(AppTheme theme, Color color, String label) {
+  // 凡例のチップ（丸）1個分。ベベル風のグラデーションで、単なる塗り丸より
+  // 「ゲームの物理的なチップ」に見えるようにしている。色の値そのものは
+  // _getTraceColor から受け取ったものをそのまま使う。
+  Widget _traceLegendChip(Color color) {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0x8C1F1B16), width: 1.4),
+        gradient: RadialGradient(
+          center: const Alignment(-0.3, -0.4),
+          colors: [
+            Color.lerp(color, Colors.white, 0.55)!,
+            color,
+            Color.lerp(color, Colors.black, 0.25)!,
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ),
+      ),
+    );
+  }
+
+  // 凡例1行分（チップ＋正式表記のラベル）。「1T」等には省略しない。
+  Widget _traceLegendRow(AppTheme theme, Color color, String label) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 11, color: theme.inkColor)),
+        _traceLegendChip(color),
+        const SizedBox(width: 8),
+        Text(label, style: TextStyle(fontSize: 12, color: theme.inkColor)),
       ],
     );
   }
 
-  List<Widget> _traceLegendItems(AppTheme theme) {
+  List<Widget> _traceLegendRows(AppTheme theme) {
     return [
-      _traceLegendSwatch(theme, Colors.amber, '1ターン目'),
-      _traceLegendSwatch(theme, Colors.grey[400]!, 'その他'),
-      _traceLegendSwatch(theme, Colors.redAccent, '6ターン目'),
+      _traceLegendRow(theme, _getTraceColor(1), '1ターン目'),
+      _traceLegendRow(theme, _getTraceColor(2), 'その他'),
+      _traceLegendRow(theme, _getTraceColor(6), '6ターン目'),
     ];
   }
 
-  // 盤面の下に表示する、横並び・枠付きの凡例（画面が狭い時のフォールバック用）。
-  Widget _buildTraceLegend(AppTheme theme) {
+  // 独立したゲーム情報プレートとしての痕跡凡例。
+  // 広い画面では盤面右側の縦並び、狭い画面では盤面下のWrapの中に
+  // そのまま置ける（自身の幅は内容に合わせて自動で決まる）。
+  Widget _buildTraceLegendPlate(AppTheme theme) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.fromLTRB(14, 10, 16, 12),
       decoration: BoxDecoration(
         color: theme.scaffoldBackground,
-        border: Border.all(color: theme.gridLine, width: 1.2),
-        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.gridLine, width: 1.4),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: theme.inkColor.withValues(alpha: 0.18),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 14,
-        runSpacing: 4,
-        children: _traceLegendItems(theme),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '痕跡の色',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: theme.gridLine,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Divider(color: theme.gridLine.withValues(alpha: 0.3), height: 1),
+          const SizedBox(height: 10),
+          for (final row in _traceLegendRows(theme))
+            Padding(padding: const EdgeInsets.only(bottom: 8), child: row),
+        ],
       ),
     );
   }
@@ -1874,13 +1934,27 @@ class _GamePageState extends State<GamePage> {
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final showLog = constraints.maxWidth >= 760;
-                      final availableBoardWidth = showLog
-                          ? constraints.maxWidth - logPanelWidth - 16
-                          : constraints.maxWidth;
+                      // デザイン切替・痕跡凡例を盤面右側の専用パネルに出せる
+                      // だけの横幅があるかどうか。狭い場合は盤面の下に置く。
+                      final showSidePanel =
+                          constraints.maxWidth >= _wideLayoutMinWidth;
+                      // ログパネルが非表示になる狭い画面では、代わりに
+                      // 直近ログ1件のミニバーを出す（ゲーム終了時は勝敗バナー
+                      // 側が既に結果を表示するため、ここでは重複させない）。
+                      final showMiniLogBar =
+                          !showLog && currentPhase != GamePhase.gameOver;
+                      final reservedWidth =
+                          (showLog ? logPanelWidth + 16 : 0) +
+                          (showSidePanel ? sidePanelWidth + 16 : 0);
+                      final availableBoardWidth =
+                          constraints.maxWidth - reservedWidth;
                       // ボタンバー分の高さをあらかじめ差し引いておき、
                       // 盤面+ボタンバーが画面の縦幅に収まるようにする。
                       final availableBoardHeight =
-                          constraints.maxHeight - pendingActionBarHeight - 8;
+                          constraints.maxHeight -
+                          pendingActionBarHeight -
+                          8 -
+                          (showMiniLogBar ? miniLogBarHeight + 8 : 0);
                       final size = min(
                         boardPixelSize,
                         min(availableBoardHeight, availableBoardWidth),
@@ -1893,9 +1967,27 @@ class _GamePageState extends State<GamePage> {
                           board,
                           const SizedBox(height: 8),
                           _buildPendingActionBar(theme, size),
+                          // 右側にパネルを出せない狭い画面では、盤面の下に
+                          // デザイン切替と痕跡凡例をWrapで並べる。
+                          if (!showSidePanel) ...[
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: size,
+                              child: Wrap(
+                                alignment: WrapAlignment.center,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 12,
+                                runSpacing: 10,
+                                children: [
+                                  _buildStyleToggleRow(theme),
+                                  _buildTraceLegendPlate(theme),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       );
-                      return Row(
+                      final row = Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1913,8 +2005,35 @@ class _GamePageState extends State<GamePage> {
                             const SizedBox(width: 16),
                           ],
                           boardColumn,
+                          // 十分広い画面では、盤面右側に専用の縦パネルとして
+                          // デザイン切替と痕跡凡例を独立配置する。
+                          if (showSidePanel) ...[
+                            const SizedBox(width: 16),
+                            SizedBox(
+                              width: sidePanelWidth,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildStyleToggleRow(theme),
+                                  const SizedBox(height: 14),
+                                  _buildTraceLegendPlate(theme),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       );
+                      final content = !showMiniLogBar
+                          ? row
+                          : Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [_buildLatestLogMiniBar(theme), row],
+                            );
+                      // 盤面下のデザイン切替・痕跡凡例を含めた合計の高さが
+                      // 画面に収まりきらない場合でも、切り捨てて見えなくなることが
+                      // ないよう、縦スクロールで必ず到達できるようにしておく。
+                      return SingleChildScrollView(child: content);
                     },
                   ),
                 ),
